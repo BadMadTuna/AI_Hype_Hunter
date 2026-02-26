@@ -1,0 +1,7 @@
+pandas
+requests
+yfinance
+streamlit
+google-generativeai
+python-dotenv
+praw  # We will use this later for Reddit sentiment
