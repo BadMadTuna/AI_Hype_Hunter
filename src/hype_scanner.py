@@ -34,29 +34,26 @@ class HypeScanner:
             df['date'] = pd.to_datetime(df['date'])
             df.sort_values('date', inplace=True)
 
-            # 1. Relative Volume (RVOL)
+            # --- THE FIX: Calculate ALL math on the dataframe first ---
             df['Volume_SMA_20'] = df['volume'].rolling(window=20).mean()
-            
+            df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()
+            df['ROC_5'] = df['close'].pct_change(periods=5) * 100
+
+            # --- NOW take the snapshot of the latest day ---
             latest = df.iloc[-1]
             prev = df.iloc[-2]
             
             current_vol = latest['volume']
             avg_vol = latest['Volume_SMA_20']
             rvol = current_vol / avg_vol if avg_vol > 0 else 0
-
-            # 2. Gap Percentage
             gap_pct = ((latest['open'] - prev['close']) / prev['close']) * 100
-
-            # 3. Short-Term Velocity (EMAs & ROC)
-            df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()
-            df['ROC_5'] = df['close'].pct_change(periods=5) * 100
 
             return {
                 "Ticker": ticker,
                 "Price": round(latest['close'], 2),
                 "RVOL": round(rvol, 2),
                 "Gap_Pct": round(gap_pct, 2),
-                "ROC_5_Days": round(df.iloc[-1]['ROC_5'], 2),
+                "ROC_5_Days": round(latest['ROC_5'], 2),
                 "Above_9_EMA": latest['close'] > latest['EMA_9'],
                 "Volume": int(current_vol)
             }
