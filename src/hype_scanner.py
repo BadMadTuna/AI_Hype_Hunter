@@ -4,29 +4,36 @@ from datetime import datetime
 import pytz
 
 class HypeScanner:
-    def get_tod_weight(self) -> float:
+    def get_tod_weight(self, last_candle_date) -> float:
         """
         Calculates the Time-of-Day (ToD) volume weight based on a standard U-Curve.
-        US Market Hours: 9:30 AM to 4:00 PM EST (390 minutes).
+        Only applies the fractional weight if the last candle is from TODAY, during active market hours.
         """
         # Always calculate based on Wall Street time
         tz = pytz.timezone('US/Eastern')
         now = datetime.now(tz)
         
-        # If it's the weekend or outside market hours, expect 100% of volume
-        if now.weekday() >= 5 or now.hour < 9 or (now.hour == 9 and now.minute < 30) or now.hour >= 16:
+        # 1. THE HOLIDAY/WEEKEND FIX: If the data is from a previous day
+        # we know it's a 100% completed trading session.
+        if last_candle_date < now.date():
             return 1.0
             
+        # 2. THE PRE-MARKET FIX: If it is today, but before 9:30 AM EST 
+        # (e.g., pre-market data trickling in before the open)
+        if now.hour < 9 or (now.hour == 9 and now.minute < 30):
+            return 1.0
+            
+        # 3. THE AFTER-HOURS FIX: If it is today, but after 4:00 PM EST 
+        # (the trading session is 100% completed)
+        if now.hour >= 16:
+            return 1.0
+            
+        # 4. We are currently IN the active trading session. Apply the U-Curve.
         elapsed_mins = (now.hour * 60 + now.minute) - (9 * 60 + 30)
         
         # Institutional U-Curve Heuristic Buckets
-        # 0-30 mins (9:30-10:00): Expect 20%
-        # 30-90 mins (10:00-11:00): Expect 15%
-        # 90-330 mins (11:00-15:00): Expect 40%
-        # 330-390 mins (15:00-16:00): Expect 25%
-        
         if elapsed_mins <= 30:
-            return (elapsed_mins / 30.0) * 0.20
+            return max(0.01, (elapsed_mins / 30.0) * 0.20)
         elif elapsed_mins <= 90:
             return 0.20 + ((elapsed_mins - 30) / 60.0) * 0.15
         elif elapsed_mins <= 330:
@@ -44,26 +51,29 @@ class HypeScanner:
             if len(hist) < 6:
                 return None
                 
+            # Grab the date of the very last candle (Safe extraction)
+            try:
+                last_candle_date = hist.index[-1].date()
+            except AttributeError:
+                last_candle_date = hist.index[-1]
+            
             current_price = float(hist['Close'].iloc[-1])
             price_5d_ago = float(hist['Close'].iloc[-6])
             roc_5d = ((current_price - price_5d_ago) / price_5d_ago) * 100
             
             current_vol = float(hist['Volume'].iloc[-1])
-            # Average of the previous 20 days (excluding today's incomplete candle)
+            # Average of the previous 20 days (excluding the latest candle)
             avg_vol = float(hist['Volume'].iloc[:-1].tail(20).mean())
             
             if avg_vol == 0:
                 return None
                 
             # --- THE MAGIC MATH ---
-            tod_weight = self.get_tod_weight()
+            tod_weight = self.get_tod_weight(last_candle_date)
             expected_vol_so_far = avg_vol * tod_weight
             
             # Calculate True Intraday RVOL
             rvol = current_vol / expected_vol_so_far if expected_vol_so_far > 0 else 0
-            
-            # We also calculate traditional RVOL just for baseline comparison (optional)
-            # traditional_rvol = current_vol / avg_vol
             
             return {
                 "Ticker": ticker,
