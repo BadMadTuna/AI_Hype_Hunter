@@ -68,13 +68,33 @@ with tab_radar:
         with st.spinner("Hunting for anomalies..."):
             scan_list = list(set(discovery.get_live_market_movers()))
             results, rejected = [], []
-            for t in scan_list:
+            total_tickers = len(scan_list)
+            
+            st.info(f"📡 API Connection Established. Scanning {total_tickers} dynamic targets...")
+            
+            # --- PROGRESS BAR RESTORED ---
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            for i, t in enumerate(scan_list):
+                # Update the live text
+                status_text.text(f"Analyzing {t} ({i+1}/{total_tickers})...")
+                
+                # Fetch metrics
                 m = scanner.get_hype_metrics(t)
                 if m and m['RVOL'] >= min_rvol:
                     results.append(m)
                 elif m:
                     rejected.append({"Ticker": t, "RVOL": m['RVOL'], "Status": "❌ Low Vol"})
+                
+                # Tick the progress bar forward
+                progress_bar.progress((i + 1) / total_tickers)
             
+            # Clear the status text when finished
+            status_text.empty()
+            # -----------------------------
+            
+            # Save to session state
             st.session_state['hype_scan_results'] = pd.DataFrame(results).sort_values(by="RVOL", ascending=False)
             st.session_state['hype_scan_debug'] = pd.DataFrame(rejected)
             st.session_state['top_hype_tickers'] = st.session_state['hype_scan_results']['Ticker'].tolist() if results else []
@@ -137,7 +157,10 @@ with tab_deep_dive:
                 st.text(d['news'])
         with col_sqz:
             with st.expander("🗜️ Short Squeeze Metrics", expanded=True):
-                for post in s['top_posts']: st.write(post)
+                for post in s['top_posts']: 
+                    # Hide the secret AI prompt from the human UI
+                    if "SYSTEM OVERRIDE" not in post:
+                        st.write(post)
                 
         # AI Verdict Section
         st.divider()
