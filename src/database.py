@@ -54,7 +54,7 @@ def init_db():
     db = SessionLocal()
     if db.query(Position).count() == 0:
         # Using USD for Hype Hunter (vs EUR in the HedgeFund repo)
-        cash = Position(ticker="USD", cost=1.0, quantity=10000.0, target=0.0, status="Liquid")
+        cash = Position(ticker="EUR", cost=1.0, quantity=5000.0, target=0.0, status="Liquid")
         db.add(cash)
         db.commit()
     db.close()

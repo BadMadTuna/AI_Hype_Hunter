@@ -39,6 +39,18 @@ def fetch_recent_news(ticker, api_key):
         return f"⚠️ API Error {res.status_code}"
     except Exception as e:
         return f"⚠️ Error: {str(e)}"
+    
+@st.cache_data(ttl=3600) # Cache for 1 hour to save API calls
+def get_fx_rate(api_key):
+    """Fetches real-time USD to EUR conversion rate via Tiingo."""
+    try:
+        url = "https://api.tiingo.com/tiingo/fx/top"
+        res = requests.get(url, params={'tickers': 'eurusd', 'token': api_key}, timeout=5)
+        if res.status_code == 200:
+            return 1.0 / res.json()[0]['midPrice']
+    except Exception:
+        pass
+    return 0.92 # Fallback rate
 
 # --- HEADER ---
 st.set_page_config(page_title="Hype Hunter Terminal", page_icon="🦅", layout="wide")
@@ -197,49 +209,59 @@ METRICS:
         )
 
 # ==========================================
-# TAB 3: RISK SIMULATOR
+# TAB 3: RISK SIMULATOR (EUR NATIVE)
 # ==========================================
 with tab_risk:
-    st.header("ATR Risk Simulator & Execution")
-    # Defensive check for ticker fallback
-    dd_payload = st.session_state.get('dd_data')
-    fallback_ticker = dd_payload.get('ticker', 'AAOI') if dd_payload else 'AAOI'
-    
-    risk_ticker = st.text_input("Ticker to Size", value=fallback_ticker).upper()
+    st.header("Phase 3: ATR Risk & Execution (EUR)")
+    risk_ticker = st.text_input("Ticker to Size", value=st.session_state.get('dd_data', {}).get('ticker', 'AAOI')).upper()
     
     col_input, col_output = st.columns([1, 2])
     with col_input:
-        acc_size = st.number_input("Account Size", value=10000)
+        acc_size = st.number_input("Account Size (€)", value=10000)
         risk_pct = st.slider("Risk % per Trade", 0.5, 5.0, 1.0)
+        
         if st.button("🛡️ Calculate Exit & Sizing", type="primary", use_container_width=True):
-            with st.spinner("Fetching Volatility..."):
+            with st.spinner("Fetching Volatility & FX Rates..."):
+                fx_rate = get_fx_rate(os.getenv("TIINGO_API_KEY"))
                 stock = yf.Ticker(risk_ticker).history(period="1mo")
-                price = stock['Close'].iloc[-1]
-                atr = (stock['High'] - stock['Low']).mean()
-                stop = price - (atr * 2)
-                max_loss = acc_size * (risk_pct/100)
-                shares = int(max_loss / (price - stop)) if (price - stop) > 0 else 0
-                st.session_state['last_calc'] = {"ticker": risk_ticker, "price": round(price,2), "shares": shares, "stop": round(stop,2), "atr": round(atr,2), "max_loss": max_loss}
+                price_usd = stock['Close'].iloc[-1]
+                atr_usd = (stock['High'] - stock['Low']).mean()
+                
+                # Convert to EUR
+                price_eur = price_usd * fx_rate
+                atr_eur = atr_usd * fx_rate
+                stop_eur = price_eur - (atr_eur * 2)
+                
+                max_loss_eur = acc_size * (risk_pct/100)
+                shares = int(max_loss_eur / (price_eur - stop_eur)) if (price_eur - stop_eur) > 0 else 0
+                
+                st.session_state['last_calc'] = {
+                    "ticker": risk_ticker, "price_eur": round(price_eur, 2), 
+                    "shares": shares, "stop_eur": round(stop_eur, 2), 
+                    "max_loss": max_loss_eur, "fx_rate": fx_rate, "price_usd": round(price_usd, 2)
+                }
 
     with col_output:
         if "last_calc" in st.session_state:
             lc = st.session_state['last_calc']
-            st.success(f"**Execution Plan: {lc['ticker']}**")
+            st.success(f"**Execution Plan: {lc['ticker']}** (USD/EUR Rate: {lc['fx_rate']:.4f})")
             m1, m2, m3 = st.columns(3)
-            m1.metric("Entry", f"${lc['price']}")
-            m2.metric("Stop Loss", f"${lc['stop']}")
+            m1.metric("Entry (€)", f"€{lc['price_eur']}")
+            m2.metric("Stop Loss (€)", f"€{lc['stop_eur']}")
             m3.metric("Shares", lc['shares'])
             
-            st.info(f"📋 **Strict Plan:** Buy {lc['shares']} shares. If stopped at ${lc['stop']}, you lose exactly ${lc['max_loss']}.")
+            st.info(f"📋 **Strict Plan:** Buy {lc['shares']} shares. If stopped at €{lc['stop_eur']}, you lose exactly €{lc['max_loss']}.")
+            st.caption(f"*Note: Actual US Market Price is ${lc['price_usd']}*")
             
-            if st.button(f"💳 Execute Buy Order", use_container_width=True):
-                if pm.execute_buy(lc['ticker'], lc['price'], lc['shares']):
+            if st.button(f"💳 Execute Buy Order (€{lc['price_eur'] * lc['shares']:.2f})", use_container_width=True):
+                # We execute the buy using the EUR cost basis so it deducts correctly from EUR cash
+                if pm.execute_buy(lc['ticker'], lc['price_eur'], lc['shares']):
                     st.success(f"Order Filled: {lc['shares']} shares of {lc['ticker']} logged to Fund.")
                 else:
                     st.error("Trade Denied: Insufficient Cash.")
 
 # ==========================================
-# TAB 4: PORTFOLIO & MANAGEMENT
+# TAB 4: PORTFOLIO & MANAGEMENT (EUR NATIVE)
 # ==========================================
 with tab_port:
     st.header("Phase 4: Fund Management & Execution")
@@ -247,9 +269,9 @@ with tab_port:
 
     # Top Level Metrics
     c1, c2, c3 = st.columns(3)
-    c1.metric("💰 Total Equity", f"${summary['total_equity']:,.2f}")
-    c2.metric("💵 Cash Balance", f"${summary['cash']:,.2f}")
-    c3.metric("📈 Invested Capital", f"${summary['invested']:,.2f}")
+    c1.metric("💰 Total Equity", f"€{summary['total_equity']:,.2f}")
+    c2.metric("💶 Cash Balance", f"€{summary['cash']:,.2f}")
+    c3.metric("📈 Invested Capital", f"€{summary['invested']:,.2f}")
 
     st.markdown("---")
     st.subheader("🛠️ Trade Execution & Portfolio Editing")
@@ -258,39 +280,31 @@ with tab_port:
     with m_col1:
         with st.expander("➕ Add Single Position / Deposit Cash", expanded=False):
             with st.form("buy_form"):
-                b_ticker = st.text_input("Ticker (Use 'USD' for Cash Deposit)", "AAPL").upper()
-                b_price = st.number_input("Entry Price (1.0 for USD)", min_value=0.0, value=1.0)
+                b_ticker = st.text_input("Ticker (Use 'EUR' for Cash Deposit)", "AAPL").upper()
+                b_price = st.number_input("Entry Price in € (1.0 for EUR)", min_value=0.0, value=1.0)
                 b_qty = st.number_input("Quantity", min_value=1.0, value=100.0)
 
                 if st.form_submit_button("Execute Buy / Deposit"):
-                    if b_ticker == 'USD':
-                        # Bypass the purchase check and inject cash directly via SQLite
-                        import sqlite3
-                        import time
+                    if b_ticker == 'EUR':
+                        import sqlite3, time
                         try:
                             conn = sqlite3.connect("data/hedgefund.db")
                             cursor = conn.cursor()
-                            cursor.execute("SELECT id, quantity FROM portfolio WHERE ticker = 'USD'")
+                            cursor.execute("SELECT id, quantity FROM portfolio WHERE ticker = 'EUR'")
                             row = cursor.fetchone()
                             if row:
                                 cursor.execute("UPDATE portfolio SET quantity = ? WHERE id = ?", (row[1] + b_qty, row[0]))
                             else:
                                 date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                cursor.execute("INSERT INTO portfolio (ticker, cost, quantity, status, date_acquired) VALUES ('USD', 1.0, ?, 'Liquid', ?)", (b_qty, date_str))
-                            conn.commit()
-                            conn.close()
-                            st.success(f"Deposited ${b_qty:,.2f} into cash reserves!")
-                            time.sleep(1)
-                            st.rerun()
+                                cursor.execute("INSERT INTO portfolio (ticker, cost, quantity, status, date_acquired) VALUES ('EUR', 1.0, ?, 'Liquid', ?)", (b_qty, date_str))
+                            conn.commit(); conn.close()
+                            st.success(f"Deposited €{b_qty:,.2f} into cash reserves!"); time.sleep(1); st.rerun()
                         except Exception as e:
                             st.error(f"Failed to deposit cash: {e}")
                     else:
-                        # Standard stock purchase logic
                         if pm.execute_buy(b_ticker, b_price, b_qty, reason="Manual Entry"):
                             import time
-                            st.success(f"Successfully bought {b_qty} of {b_ticker}!")
-                            time.sleep(1)
-                            st.rerun()
+                            st.success(f"Successfully bought {b_qty} of {b_ticker}!"); time.sleep(1); st.rerun()
                         else:
                             st.error("Trade Failed. Check cash balance.")
 
@@ -298,43 +312,30 @@ with tab_port:
         with st.expander("✂️ Sell / Trim Position", expanded=False):
             with st.form("sell_form"):
                 s_ticker = st.text_input("Ticker to Sell").upper()
-                s_price = st.number_input("Exit Price", min_value=0.0, value=150.0)
+                s_price = st.number_input("Exit Price in €", min_value=0.0, value=150.0)
                 s_qty = st.number_input("Quantity to Sell", min_value=1.0, value=10.0)
 
                 if st.form_submit_button("Execute Sell / Trim"):
                     if pm.execute_sell(s_ticker, s_price, s_qty, reason="Manual Sell"):
                         import time
-                        st.success(f"Successfully sold {s_qty} of {s_ticker}!")
-                        time.sleep(1)
-                        st.rerun()
+                        st.success(f"Successfully sold {s_qty} of {s_ticker}!"); time.sleep(1); st.rerun()
                     else:
                         st.error("Failed. Ensure you own enough shares of this stock.")
 
     st.markdown("---")
     
-    # Holdings Display
     st.subheader("📂 Open Positions")
     df_p = get_portfolio_df()
     if not df_p.empty:
-        # Filter out the cash row for the holdings table
-        holdings = df_p[~df_p['ticker'].isin(['USD', 'CASH'])].copy()
+        holdings = df_p[~df_p['ticker'].isin(['EUR', 'CASH'])].copy()
         if not holdings.empty:
-            st.dataframe(
-                holdings.style.format({'cost': '${:.2f}', 'quantity': '{:.2f}', 'target': '${:.2f}'}),
-                use_container_width=True, hide_index=True
-            )
+            st.dataframe(holdings.style.format({'cost': '€{:.2f}', 'quantity': '{:.2f}', 'target': '€{:.2f}'}), use_container_width=True, hide_index=True)
         else:
             st.info("No active stock positions. Your portfolio is 100% cash.")
     else:
         st.info("Portfolio is completely empty.")
 
-    # Trade Journal
     st.subheader("📓 Trade Journal")
     df_j = get_journal_df()
     if not df_j.empty:
-        st.dataframe(
-            df_j.style.format({'entry': '${:.2f}', 'exit': '${:.2f}', 'pnl_abs': '${:.2f}', 'pnl_pct': '{:.2f}%'}),
-            use_container_width=True, hide_index=True
-        )
-    else:
-        st.info("No trades executed yet.")
+        st.dataframe(df_j.style.format({'entry': '€{:.2f}', 'exit': '€{:.2f}', 'pnl_abs': '€{:.2f}', 'pnl_pct': '{:.2f}%'}), use_container_width=True, hide_index=True)

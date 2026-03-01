@@ -17,7 +17,7 @@ class PortfolioManager:
         invested = 0.0
 
         for p in positions:
-            if p.ticker in ["USD", "CASH"]:
+            if p.ticker in ["EUR", "CASH"]:
                 cash += p.quantity
             elif p.quantity > 0:
                 # For simplicity here, we use the cost basis to show "invested capital".
@@ -41,7 +41,7 @@ class PortfolioManager:
         
         try:
             # 1. Check Cash
-            cash_pos = db.query(Position).filter(Position.ticker.in_(["USD", "CASH"])).first()
+            cash_pos = db.query(Position).filter(Position.ticker.in_(["EUR", "CASH"])).first()
             if not cash_pos or cash_pos.quantity < cost_of_trade:
                 print("⚠️ Insufficient funds!")
                 db.close()
@@ -111,11 +111,11 @@ class PortfolioManager:
                 action_type = "TRIM"
                 
             # 4. Add Cash
-            cash_pos = db.query(Position).filter(Position.ticker.in_(["USD", "CASH"])).first()
+            cash_pos = db.query(Position).filter(Position.ticker.in_(["EUR", "CASH"])).first()
             if cash_pos:
                 cash_pos.quantity += sale_proceeds
             else:
-                new_cash = Position(ticker="USD", cost=1.0, quantity=sale_proceeds, status="Liquid")
+                new_cash = Position(ticker="EUR", cost=1.0, quantity=sale_proceeds, status="Liquid")
                 db.add(new_cash)
                 
             # 5. Log to Journal
