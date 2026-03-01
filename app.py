@@ -272,18 +272,111 @@ with tab_risk:
                     st.error("Trade Denied: Insufficient Cash.")
 
 # ==========================================
-# TAB 4: PORTFOLIO & MANAGEMENT (EUR NATIVE)
+# TAB 4: PORTFOLIO & MANAGEMENT (LIVE MTM)
 # ==========================================
 with tab_port:
     st.header("Phase 4: Fund Management & Execution")
-    summary = pm.get_equity_summary()
+    
+    # 1. Fetch raw portfolio data from the database
+    df_port = get_portfolio_df()
+    
+    # 2. Initialize Session State for Live Tracking
+    if "live_port_df" not in st.session_state:
+        st.session_state.live_port_df = None
+        st.session_state.current_fx_rate = 1.0
 
-    # Top Level Metrics
-    c1, c2, c3 = st.columns(3)
-    c1.metric("💰 Total Equity", f"€{summary['total_equity']:,.2f}")
-    c2.metric("💶 Cash Balance", f"€{summary['cash']:,.2f}")
-    c3.metric("📈 Invested Capital", f"€{summary['invested']:,.2f}")
+    col_btn, _ = st.columns([1, 4])
+    with col_btn:
+        refresh_clicked = st.button("🔄 Refresh Live Prices & PnL", type="primary", use_container_width=True)
 
+    # 3. Live Price Fetching Logic 
+    if refresh_clicked and not df_port.empty:
+        with st.spinner("Fetching real-time US market prices & FX rates..."):
+            # Fetch Live FX Rate
+            fx_rate = get_fx_rate(os.getenv("TIINGO_API_KEY"))
+            
+            # Fetch Live Prices using yfinance fast_info (extremely fast)
+            live_prices = {}
+            active_tickers = [t for t in df_port['ticker'].unique() if t not in ['USD', 'EUR', 'CASH']]
+            
+            if active_tickers:
+                import yfinance as yf
+                for t in active_tickers:
+                    try:
+                        price_usd = yf.Ticker(t).fast_info['last_price']
+                        live_prices[t] = price_usd * fx_rate # Convert live US price to EUR
+                    except Exception:
+                        pass # If fetch fails, we will fallback to cost basis below
+            
+            # Map Live Prices to DataFrame
+            live_df = df_port.copy()
+            def get_live_price(row):
+                if row['ticker'] in ['EUR', 'USD', 'CASH']: return 1.0
+                return live_prices.get(row['ticker'], row['cost']) 
+                
+            live_df['Live Price (€)'] = live_df.apply(get_live_price, axis=1)
+            live_df['Current Value (€)'] = live_df['Live Price (€)'] * live_df['quantity']
+            
+            # Calculate Live PnL 
+            is_stock = ~live_df['ticker'].isin(['EUR', 'USD', 'CASH'])
+            live_df['PnL (€)'] = 0.0
+            live_df['PnL (%)'] = 0.0
+            live_df.loc[is_stock, 'PnL (€)'] = (live_df['Live Price (€)'] - live_df['cost']) * live_df['quantity']
+            live_df.loc[is_stock, 'PnL (%)'] = ((live_df['Live Price (€)'] - live_df['cost']) / live_df['cost']) * 100
+            
+            st.session_state.live_port_df = live_df
+            st.session_state.current_fx_rate = fx_rate
+
+    # 4. Top Level Metrics (Live vs Cost Basis) 
+    if st.session_state.live_port_df is not None:
+        ldf = st.session_state.live_port_df
+        cash = ldf[ldf['ticker'].isin(['EUR', 'USD', 'CASH'])]['Current Value (€)'].sum()
+        inv_val = ldf[~ldf['ticker'].isin(['EUR', 'USD', 'CASH'])]['Current Value (€)'].sum()
+        inv_cost = ldf[~ldf['ticker'].isin(['EUR', 'USD', 'CASH'])]['cost'].multiply(ldf[~ldf['ticker'].isin(['EUR', 'USD', 'CASH'])]['quantity']).sum()
+        pnl_eur = ldf['PnL (€)'].sum()
+        total_equity = cash + inv_val
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("💰 Live Total Equity", f"€{total_equity:,.2f}", f"{pnl_eur:+,.2f} €")
+        c2.metric("💶 Cash Balance", f"€{cash:,.2f}")
+        c3.metric("📈 Total Return", f"{(pnl_eur/inv_cost*100 if inv_cost>0 else 0):+.2f}%")
+        c4.metric("📊 Live Invested Value", f"€{inv_val:,.2f}")
+        st.caption(f"🌍 *Live USD to EUR Conversion Rate:* **{st.session_state.current_fx_rate:.4f}**")
+    else:
+        summary = pm.get_equity_summary()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("💰 Total Equity (Cost Basis)", f"€{summary['total_equity']:,.2f}")
+        c2.metric("💶 Cash Balance", f"€{summary['cash']:,.2f}")
+        c3.metric("📈 Invested Capital", f"€{summary['invested']:,.2f}")
+
+    st.markdown("---")
+
+    # 5. Holdings Display
+    st.subheader("📂 Open Positions")
+    if st.session_state.live_port_df is not None:
+        holdings = st.session_state.live_port_df[~st.session_state.live_port_df['ticker'].isin(['EUR', 'USD', 'CASH'])].copy()
+        if not holdings.empty:
+            def color_pnl(val):
+                if isinstance(val, (int, float)):
+                    if val > 0: return 'color: #10b981;' 
+                    elif val < 0: return 'color: #ef4444;' 
+                return ''
+                
+            styled_df = holdings[['ticker', 'quantity', 'cost', 'Live Price (€)', 'Current Value (€)', 'PnL (€)', 'PnL (%)']].style.format({
+                'cost': '€{:.2f}', 'Live Price (€)': '€{:.2f}', 'Current Value (€)': '€{:.2f}', 
+                'PnL (€)': '€{:.2f}', 'PnL (%)': '{:.2f}%'
+            }).map(color_pnl, subset=['PnL (€)', 'PnL (%)'])
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No active stock positions.")
+    else:
+        holdings = df_port[~df_port['ticker'].isin(['EUR', 'USD', 'CASH'])].copy()
+        if not holdings.empty:
+            st.dataframe(holdings.style.format({'cost': '€{:.2f}', 'quantity': '{:.2f}', 'target': '€{:.2f}'}), use_container_width=True, hide_index=True)
+        else:
+            st.info("No active stock positions.")
+
+    # 6. Trade Execution Forms
     st.markdown("---")
     st.subheader("🛠️ Trade Execution & Portfolio Editing")
     m_col1, m_col2 = st.columns(2)
@@ -333,19 +426,8 @@ with tab_port:
                     else:
                         st.error("Failed. Ensure you own enough shares of this stock.")
 
+    # 7. Trade Journal
     st.markdown("---")
-    
-    st.subheader("📂 Open Positions")
-    df_p = get_portfolio_df()
-    if not df_p.empty:
-        holdings = df_p[~df_p['ticker'].isin(['EUR', 'CASH'])].copy()
-        if not holdings.empty:
-            st.dataframe(holdings.style.format({'cost': '€{:.2f}', 'quantity': '{:.2f}', 'target': '€{:.2f}'}), use_container_width=True, hide_index=True)
-        else:
-            st.info("No active stock positions. Your portfolio is 100% cash.")
-    else:
-        st.info("Portfolio is completely empty.")
-
     st.subheader("📓 Trade Journal")
     df_j = get_journal_df()
     if not df_j.empty:
