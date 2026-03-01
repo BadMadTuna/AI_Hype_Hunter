@@ -1,32 +1,29 @@
 import streamlit as st
 import pandas as pd
 import requests
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 
 # Import our custom modules
-from src.hype_scanner import HypeScanner
-from src.ai_agent import HypeAgent
 from src.discovery import DiscoveryEngine
-from src.sentiment import RedditScraper
+from src.hype_scanner import HypeScanner
+from src.sentiment import RedditScraper  # Hijacked to fetch Short Data
+from src.ai_agent import HypeAgent
 
 # Load environment variables
 load_dotenv()
+tiingo_key = os.getenv("TIINGO_API_KEY")
 
-# --- INIT ---
-st.set_page_config(page_title="🚀 Hype Hunter Terminal", layout="wide", page_icon="🔥")
+# Initialize engines
+discovery = DiscoveryEngine()
+scanner = HypeScanner()
+reddit = RedditScraper()
+agent = HypeAgent()
 
-@st.cache_resource
-def get_clients():
-    return HypeScanner(), HypeAgent(), DiscoveryEngine(), RedditScraper()
-
-scanner, agent, discovery, reddit = get_clients()
-
-# Helper function to fetch news for the AI Agent
 # Helper function to fetch news for the AI Agent
 def fetch_recent_news(ticker, api_key):
     try:
-        # Perfectly clean URL string
         url = f"https://api.tiingo.com/tiingo/news?tickers={ticker}&limit=5"
         headers = {
             'Authorization': f'Token {api_key}',
@@ -50,11 +47,12 @@ def fetch_recent_news(ticker, api_key):
         return f"⚠️ Error: {str(e)}"
 
 # --- HEADER ---
+st.set_page_config(page_title="Hype Hunter Terminal", page_icon="🔥", layout="wide")
 st.title("🔥 Hype Hunter: Narrative & Momentum Terminal")
 st.markdown("Dynamically hunting for extreme volume anomalies and grading their narrative catalysts.")
 
 # --- TABS ---
-tab_radar, tab_deep_dive = st.tabs(["🎯 Hype Radar (Live Scan)", "🔬 VC Deep Dive & AI Grading"])
+tab_radar, tab_deep_dive = st.tabs(["📡 Phase 1: Radar Scan", "🧠 Phase 2: VC Deep Dive"])
 
 # ==========================================
 # TAB 1: RADAR SCAN
@@ -130,7 +128,7 @@ with tab_radar:
             st.session_state['hype_scan_results'] = df_results
             st.session_state['top_hype_tickers'] = df_results['Ticker'].tolist()
         else:
-            st.session_state['hype_scan_results'] = pd.DataFrame() # Empty dataframe
+            st.session_state['hype_scan_results'] = pd.DataFrame() 
             
         st.session_state['hype_scan_debug'] = pd.DataFrame(rejected_log)
 
@@ -152,8 +150,6 @@ with tab_radar:
             
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
-            # --- NEW: Download Button ---
-            from datetime import datetime
             st.download_button(
                 label="📥 Download Hype Scan Results (CSV)",
                 data=df_results.to_csv(index=False).encode('utf-8'),
@@ -177,7 +173,7 @@ with tab_radar:
 # ==========================================
 with tab_deep_dive:
     st.header("Phase 2: AI Venture Capital Catalyst Grading")
-    st.write("Does the narrative justify the volume? Let Gemini analyze the news and sentiment.")
+    st.write("Does the narrative justify the volume? Let Gemini analyze the news and Short Squeeze potential.")
     
     # Initialize session state for the deep dive data
     if "dd_data" not in st.session_state:
@@ -202,10 +198,10 @@ with tab_deep_dive:
             else:
                 news = fetch_recent_news(target_ticker, scanner.api_key)
                 
-                with st.spinner("Scraping live WallStreetBets sentiment..."):
-                    social_data = reddit.get_ticker_sentiment(target_ticker)
+                with st.spinner("Calculating Institutional Short Float Data..."):
+                    social_data = reddit.get_ticker_sentiment(target_ticker) # Actually fetching Short Data
                 
-                with st.spinner("AI is evaluating the catalyst and crowd psychology..."):
+                with st.spinner("AI is evaluating the catalyst and short squeeze mechanics..."):
                     verdict_data = agent.get_hype_verdict(target_ticker, metrics, news, social_data)
                     
                     # Lock the results into memory so they survive button clicks
@@ -231,14 +227,14 @@ with tab_deep_dive:
         c1.metric("Current Price", f"${metrics['Price']}")
         c2.metric("RVOL", f"{metrics['RVOL']}x")
         c3.metric("5-Day Velocity", f"{metrics['ROC_5_Days']}%")
-        c4.metric("WSB Mentions (Today)", social_data['mention_count'])
+        c4.metric("Short % of Float", social_data['mention_count'])
         
         col_news, col_social = st.columns(2)
         with col_news:
             with st.expander("📰 Recent Headlines", expanded=True):
                 st.text(news)
         with col_social:
-            with st.expander("🔥 Live WSB Sentiment", expanded=True):
+            with st.expander("🗜️ Short Squeeze Metrics", expanded=True):
                 for post in social_data['top_posts']:
                     st.write(post)
         
@@ -253,7 +249,7 @@ with tab_deep_dive:
         thesis = verdict_data.get('vc_thesis', 'No thesis generated.')
         
         with v_col1:
-            st.metric("Crowd Frenzy Score", f"{score}/100")
+            st.metric("Institutional Frenzy Score", f"{score}/100")
             
             if "Tier 1" in tier: st.success(f"**Catalyst:** {tier}")
             elif "Tier 2" in tier: st.info(f"**Catalyst:** {tier}")
@@ -270,7 +266,6 @@ with tab_deep_dive:
         st.markdown("---")
         
         # --- GENERATE VC MEMO DOWNLOAD ---
-        from datetime import datetime
         social_text = "\n".join([f"- {post}" for post in social_data['top_posts']])
         
         memo_text = f"""# AI HYPE HUNTER - VC MEMO: {t_ticker}
@@ -278,7 +273,7 @@ Date Generated: {datetime.today().strftime('%Y-%m-%d')}
 
 ## 1. AI VERDICT
 - Action: {action}
-- Crowd Frenzy Score: {score}/100
+- Institutional Frenzy Score: {score}/100
 - Catalyst: {tier}
 
 ## 2. VC THESIS
@@ -289,8 +284,8 @@ Date Generated: {datetime.today().strftime('%Y-%m-%d')}
 - RVOL: {metrics['RVOL']}x
 - 5-Day Velocity: {metrics['ROC_5_Days']}%
 
-## 4. RETAIL SENTIMENT
-- Daily Mentions: {social_data['mention_count']}
+## 4. SHORT SQUEEZE METRICS
+- Short % of Float: {social_data['mention_count']}
 {social_text}
 
 ## 5. RECENT NEWS
