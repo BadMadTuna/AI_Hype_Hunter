@@ -94,11 +94,12 @@ with tab_radar:
 # TAB 2: VC DEEP DIVE
 # ==========================================
 with tab_deep_dive:
-    st.header("AI Narrative & Catalyst Grading")
-    if "dd_data" not in st.session_state: st.session_state['dd_data'] = None
+    st.header("Phase 2: AI Narrative & Catalyst Grading")
     
-    ticker_list = st.session_state.get('top_hype_tickers', ['SMCI'])
-    target_ticker = st.text_input("Ticker to Analyze", value=ticker_list[0] if ticker_list else "SMCI").upper()
+    # Safely get the default ticker from the scan results
+    ticker_list = st.session_state.get('top_hype_tickers', [])
+    default_val = ticker_list[0] if ticker_list else "SMCI"
+    target_ticker = st.text_input("Ticker to Analyze", value=default_val).upper()
     
     if st.button("🧠 Grade Narrative Catalyst", type="primary"):
         with st.spinner(f"AI Deep Dive: {target_ticker}..."):
@@ -106,22 +107,30 @@ with tab_deep_dive:
             news = fetch_recent_news(target_ticker, os.getenv("TIINGO_API_KEY"))
             squeeze = reddit.get_ticker_sentiment(target_ticker) 
             verdict = agent.get_hype_verdict(target_ticker, metrics, news, squeeze)
-            st.session_state['dd_data'] = {'metrics': metrics, 'news': news, 'squeeze': squeeze, 'verdict': verdict, 'ticker': target_ticker}
+            
+            # Save the full rich object to state
+            st.session_state['dd_data'] = {
+                'metrics': metrics, 
+                'news': news, 
+                'squeeze': squeeze, 
+                'verdict': verdict, 
+                'ticker': target_ticker
+            }
 
-    if st.session_state['dd_data']:
+    if st.session_state.get('dd_data'):
         d = st.session_state['dd_data']
         v = d['verdict']
         m = d['metrics']
         s = d['squeeze']
         
-        # Metric Bar
+        # Metric Bar (Visual Output)
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Price", f"${m['Price']}")
         c2.metric("RVOL", f"{m['RVOL']}x")
         c3.metric("5D Velocity", f"{m['ROC_5_Days']}%")
         c4.metric("Short Float", s['mention_count'])
         
-        # Context Expanders
+        # Side-by-Side Expanders
         col_news, col_sqz = st.columns(2)
         with col_news:
             with st.expander("📰 Recent Headlines", expanded=True):
@@ -130,7 +139,7 @@ with tab_deep_dive:
             with st.expander("🗜️ Short Squeeze Metrics", expanded=True):
                 for post in s['top_posts']: st.write(post)
                 
-        # AI Verdict
+        # AI Verdict Section
         st.divider()
         st.subheader("🤖 AI Venture Capital Verdict")
         v_col1, v_col2 = st.columns([1, 2])
@@ -141,16 +150,39 @@ with tab_deep_dive:
         with v_col2:
             st.markdown(f"### VC Thesis\n{v.get('vc_thesis')}")
             
-        # Professional Memo Download
-        memo = f"# VC MEMO: {d['ticker']}\nScore: {v.get('hype_score')}/100\n\nTHESIS:\n{v.get('vc_thesis')}\n\nMETRICS:\n- RVOL: {m['RVOL']}x\n- Short: {s['mention_count']}"
-        st.download_button(f"📥 Download VC Memo for {d['ticker']}", memo, f"{d['ticker']}_memo.txt", use_container_width=True)
+        # The VC Memo Download (Fixed)
+        memo_content = f"""# VC MEMO: {d['ticker']}
+Generated: {datetime.now().strftime('%Y-%m-%d')}
+SCORE: {v.get('hype_score')}/100
+CATALYST: {v.get('catalyst_tier')}
+VERDICT: {v.get('verdict')}
+
+THESIS:
+{v.get('vc_thesis')}
+
+METRICS:
+- Price: ${m['Price']}
+- RVOL: {m['RVOL']}x
+- 5D Momentum: {m['ROC_5_Days']}%
+- Short Interest: {s['mention_count']}
+"""
+        st.download_button(
+            label=f"📥 Download VC Memo for {d['ticker']}",
+            data=memo_content,
+            file_name=f"VC_Memo_{d['ticker']}.txt",
+            use_container_width=True
+        )
 
 # ==========================================
 # TAB 3: RISK SIMULATOR
 # ==========================================
 with tab_risk:
     st.header("ATR Risk Simulator & Execution")
-    risk_ticker = st.text_input("Ticker to Size", value=st.session_state.get('dd_data', {}).get('ticker', 'AAOI')).upper()
+    # Defensive check for ticker fallback
+    dd_payload = st.session_state.get('dd_data')
+    fallback_ticker = dd_payload.get('ticker', 'AAOI') if dd_payload else 'AAOI'
+    
+    risk_ticker = st.text_input("Ticker to Size", value=fallback_ticker).upper()
     
     col_input, col_output = st.columns([1, 2])
     with col_input:
