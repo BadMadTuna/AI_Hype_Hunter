@@ -1,62 +1,77 @@
-import os
-import requests
+import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-
-load_dotenv()
+from datetime import datetime
+import pytz
 
 class HypeScanner:
-    def __init__(self):
-        self.api_key = os.getenv("TIINGO_API_KEY")
-        if not self.api_key:
-            raise ValueError("⚠️ TIINGO_API_KEY not found in .env file.")
+    def get_tod_weight(self) -> float:
+        """
+        Calculates the Time-of-Day (ToD) volume weight based on a standard U-Curve.
+        US Market Hours: 9:30 AM to 4:00 PM EST (390 minutes).
+        """
+        # Always calculate based on Wall Street time
+        tz = pytz.timezone('US/Eastern')
+        now = datetime.now(tz)
         
-        self.headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Token {self.api_key}'
-        }
-
-    def get_hype_metrics(self, ticker: str, lookback_days: int = 40) -> dict:
-        try:
-            start_date = (datetime.now() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
-            url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices?startDate={start_date}"
+        # If it's the weekend or outside market hours, expect 100% of volume
+        if now.weekday() >= 5 or now.hour < 9 or (now.hour == 9 and now.minute < 30) or now.hour >= 16:
+            return 1.0
             
-            response = requests.get(url, headers=self.headers, timeout=10)
-            if response.status_code != 200:
+        elapsed_mins = (now.hour * 60 + now.minute) - (9 * 60 + 30)
+        
+        # Institutional U-Curve Heuristic Buckets
+        # 0-30 mins (9:30-10:00): Expect 20%
+        # 30-90 mins (10:00-11:00): Expect 15%
+        # 90-330 mins (11:00-15:00): Expect 40%
+        # 330-390 mins (15:00-16:00): Expect 25%
+        
+        if elapsed_mins <= 30:
+            return (elapsed_mins / 30.0) * 0.20
+        elif elapsed_mins <= 90:
+            return 0.20 + ((elapsed_mins - 30) / 60.0) * 0.15
+        elif elapsed_mins <= 330:
+            return 0.35 + ((elapsed_mins - 90) / 240.0) * 0.40
+        else:
+            return 0.75 + ((elapsed_mins - 330) / 60.0) * 0.25
+
+    def get_hype_metrics(self, ticker: str) -> dict:
+        """Fetches technical data and calculates Time-Adjusted RVOL."""
+        try:
+            # Suppress yfinance output to keep logs clean
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="1mo")
+            
+            if len(hist) < 6:
                 return None
                 
-            data = response.json()
-            if len(data) < 20: 
-                return None 
-
-            df = pd.DataFrame(data)
-            df['date'] = pd.to_datetime(df['date'])
-            df.sort_values('date', inplace=True)
-
-            # --- THE FIX: Calculate ALL math on the dataframe first ---
-            df['Volume_SMA_20'] = df['volume'].rolling(window=20).mean()
-            df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()
-            df['ROC_5'] = df['close'].pct_change(periods=5) * 100
-
-            # --- NOW take the snapshot of the latest day ---
-            latest = df.iloc[-1]
-            prev = df.iloc[-2]
+            current_price = float(hist['Close'].iloc[-1])
+            price_5d_ago = float(hist['Close'].iloc[-6])
+            roc_5d = ((current_price - price_5d_ago) / price_5d_ago) * 100
             
-            current_vol = latest['volume']
-            avg_vol = latest['Volume_SMA_20']
-            rvol = current_vol / avg_vol if avg_vol > 0 else 0
-            gap_pct = ((latest['open'] - prev['close']) / prev['close']) * 100
-
+            current_vol = float(hist['Volume'].iloc[-1])
+            # Average of the previous 20 days (excluding today's incomplete candle)
+            avg_vol = float(hist['Volume'].iloc[:-1].tail(20).mean())
+            
+            if avg_vol == 0:
+                return None
+                
+            # --- THE MAGIC MATH ---
+            tod_weight = self.get_tod_weight()
+            expected_vol_so_far = avg_vol * tod_weight
+            
+            # Calculate True Intraday RVOL
+            rvol = current_vol / expected_vol_so_far if expected_vol_so_far > 0 else 0
+            
+            # We also calculate traditional RVOL just for baseline comparison (optional)
+            # traditional_rvol = current_vol / avg_vol
+            
             return {
                 "Ticker": ticker,
-                "Price": round(latest['close'], 2),
+                "Price": round(current_price, 2),
                 "RVOL": round(rvol, 2),
-                "Gap_Pct": round(gap_pct, 2),
-                "ROC_5_Days": round(latest['ROC_5'], 2),
-                "Above_9_EMA": latest['close'] > latest['EMA_9'],
-                "Volume": int(current_vol)
+                "ROC_5_Days": round(roc_5d, 2),
+                "Current_Volume": int(current_vol),
+                "Expected_Volume": int(expected_vol_so_far)
             }
-        except Exception as e:
-            print(f"Error processing {ticker}: {e}")
+        except Exception:
             return None
