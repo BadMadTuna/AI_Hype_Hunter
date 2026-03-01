@@ -179,62 +179,127 @@ with tab_deep_dive:
     st.header("Phase 2: AI Venture Capital Catalyst Grading")
     st.write("Does the narrative justify the volume? Let Gemini analyze the news and sentiment.")
     
+    # Initialize session state for the deep dive data
+    if "dd_data" not in st.session_state:
+        st.session_state['dd_data'] = None
+    if "dd_ticker" not in st.session_state:
+        st.session_state['dd_ticker'] = None
+        
     default_ticker = "SMCI"
     if 'top_hype_tickers' in st.session_state and st.session_state['top_hype_tickers']:
         default_ticker = st.session_state['top_hype_tickers'][0]
         
     target_ticker = st.text_input("Ticker to Analyze", value=default_ticker).upper()
     
+    # --- FETCH DATA & SAVE TO STATE ---
     if st.button("🧠 Grade Narrative Catalyst", type="primary"):
         with st.spinner(f"Fetching metrics and news for {target_ticker}..."):
             metrics = scanner.get_hype_metrics(target_ticker)
             
             if not metrics:
                 st.error("Could not fetch market data. Check API limits or ticker validity.")
+                st.session_state['dd_data'] = None
             else:
                 news = fetch_recent_news(target_ticker, scanner.api_key)
                 
                 with st.spinner("Scraping live WallStreetBets sentiment..."):
                     social_data = reddit.get_ticker_sentiment(target_ticker)
                 
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Current Price", f"${metrics['Price']}")
-                c2.metric("RVOL", f"{metrics['RVOL']}x")
-                c3.metric("5-Day Velocity", f"{metrics['ROC_5_Days']}%")
-                c4.metric("WSB Mentions (Today)", social_data['mention_count'])
-                
-                col_news, col_social = st.columns(2)
-                with col_news:
-                    with st.expander("📰 Recent Headlines", expanded=True):
-                        st.text(news)
-                with col_social:
-                    with st.expander("🔥 Live WSB Sentiment", expanded=True):
-                        for post in social_data['top_posts']:
-                            st.write(post)
-                
-                st.markdown("---")
-                st.subheader("🤖 AI Venture Capital Verdict")
-                
                 with st.spinner("AI is evaluating the catalyst and crowd psychology..."):
                     verdict_data = agent.get_hype_verdict(target_ticker, metrics, news, social_data)
                     
-                    v_col1, v_col2 = st.columns([1, 2])
-                    
-                    with v_col1:
-                        score = verdict_data.get('hype_score', 0)
-                        tier = verdict_data.get('catalyst_tier', 'Unknown')
-                        action = verdict_data.get('verdict', 'WATCH')
-                        
-                        st.metric("Crowd Frenzy Score", f"{score}/100")
-                        
-                        if "Tier 1" in tier: st.success(f"**Catalyst:** {tier}")
-                        elif "Tier 2" in tier: st.info(f"**Catalyst:** {tier}")
-                        else: st.warning(f"**Catalyst:** {tier}")
-                        
-                        if "RIDE" in action: st.success(f"**Action:** {action}")
-                        elif "FADE" in action: st.error(f"**Action:** {action}")
-                        else: st.warning(f"**Action:** {action}")
-                        
-                    with v_col2:
-                        st.markdown("### VC Thesis")
-                        st.write(verdict_data.get('vc_thesis', 'No thesis generated.'))
+                    # Lock the results into memory so they survive button clicks
+                    st.session_state['dd_data'] = {
+                        'metrics': metrics,
+                        'news': news,
+                        'social_data': social_data,
+                        'verdict': verdict_data
+                    }
+                    st.session_state['dd_ticker'] = target_ticker
+
+    # --- RENDER UI (Outside the button block) ---
+    if st.session_state['dd_data'] is not None:
+        data = st.session_state['dd_data']
+        t_ticker = st.session_state['dd_ticker']
+        
+        metrics = data['metrics']
+        news = data['news']
+        social_data = data['social_data']
+        verdict_data = data['verdict']
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Current Price", f"${metrics['Price']}")
+        c2.metric("RVOL", f"{metrics['RVOL']}x")
+        c3.metric("5-Day Velocity", f"{metrics['ROC_5_Days']}%")
+        c4.metric("WSB Mentions (Today)", social_data['mention_count'])
+        
+        col_news, col_social = st.columns(2)
+        with col_news:
+            with st.expander("📰 Recent Headlines", expanded=True):
+                st.text(news)
+        with col_social:
+            with st.expander("🔥 Live WSB Sentiment", expanded=True):
+                for post in social_data['top_posts']:
+                    st.write(post)
+        
+        st.markdown("---")
+        st.subheader("🤖 AI Venture Capital Verdict")
+        
+        v_col1, v_col2 = st.columns([1, 2])
+        
+        score = verdict_data.get('hype_score', 0)
+        tier = verdict_data.get('catalyst_tier', 'Unknown')
+        action = verdict_data.get('verdict', 'WATCH')
+        thesis = verdict_data.get('vc_thesis', 'No thesis generated.')
+        
+        with v_col1:
+            st.metric("Crowd Frenzy Score", f"{score}/100")
+            
+            if "Tier 1" in tier: st.success(f"**Catalyst:** {tier}")
+            elif "Tier 2" in tier: st.info(f"**Catalyst:** {tier}")
+            else: st.warning(f"**Catalyst:** {tier}")
+            
+            if "RIDE" in action: st.success(f"**Action:** {action}")
+            elif "FADE" in action: st.error(f"**Action:** {action}")
+            else: st.warning(f"**Action:** {action}")
+            
+        with v_col2:
+            st.markdown("### VC Thesis")
+            st.write(thesis)
+            
+        st.markdown("---")
+        
+        # --- GENERATE VC MEMO DOWNLOAD ---
+        from datetime import datetime
+        social_text = "\n".join([f"- {post}" for post in social_data['top_posts']])
+        
+        memo_text = f"""# AI HYPE HUNTER - VC MEMO: {t_ticker}
+Date Generated: {datetime.today().strftime('%Y-%m-%d')}
+
+## 1. AI VERDICT
+- Action: {action}
+- Crowd Frenzy Score: {score}/100
+- Catalyst: {tier}
+
+## 2. VC THESIS
+{thesis}
+
+## 3. MARKET METRICS
+- Price: ${metrics['Price']}
+- RVOL: {metrics['RVOL']}x
+- 5-Day Velocity: {metrics['ROC_5_Days']}%
+
+## 4. RETAIL SENTIMENT
+- Daily Mentions: {social_data['mention_count']}
+{social_text}
+
+## 5. RECENT NEWS
+{news}
+"""
+        st.download_button(
+            label=f"📥 Download VC Memo for {t_ticker} (.txt)",
+            data=memo_text.encode('utf-8'),
+            file_name=f"VC_Memo_{t_ticker}_{datetime.today().strftime('%Y%m%d')}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
