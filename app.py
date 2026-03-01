@@ -115,7 +115,18 @@ with tab_radar:
         df = st.session_state['hype_scan_results']
         if not df.empty:
             st.success(f"🔥 Found {len(df)} High-Volume Anomalies.")
-            st.dataframe(df.style.format({'Price': '${:.2f}', 'RVOL': '{:.2f}x', 'ROC_5_Days': '{:.2f}%'}), use_container_width=True, hide_index=True)
+            
+            # Restoring the visual heat map for RVOL
+            def highlight_rvol(val):
+                if val >= 4.0: return 'background-color: #7f1d1d; color: white; font-weight: bold;' 
+                if val >= 2.5: return 'background-color: #9a3412; color: white; font-weight: bold;' 
+                return ''
+                
+            styled_df = df.style.format({
+                'Price': '${:.2f}', 'RVOL': '{:.2f}x', 'Gap_Pct': '{:.2f}%', 'ROC_5_Days': '{:.2f}%'
+            }).map(highlight_rvol, subset=['RVOL'])
+            
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
             st.download_button("📥 Download Scan (CSV)", df.to_csv(index=False), f"scan_{datetime.now().strftime('%Y%m%d')}.csv")
         
         if show_debug and st.session_state['hype_scan_debug'] is not None:
