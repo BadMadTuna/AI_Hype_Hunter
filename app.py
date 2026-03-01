@@ -23,16 +23,31 @@ def get_clients():
 scanner, agent, discovery, reddit = get_clients()
 
 # Helper function to fetch news for the AI Agent
+# Helper function to fetch news for the AI Agent
 def fetch_recent_news(ticker, api_key):
     try:
-        url = f"[https://api.tiingo.com/tiingo/news?tickers=](https://api.tiingo.com/tiingo/news?tickers=){ticker}&limit=5"
-        headers = {'Authorization': f'Token {api_key}'}
+        # Perfectly clean URL string
+        url = f"https://api.tiingo.com/tiingo/news?tickers={ticker}&limit=5"
+        headers = {
+            'Authorization': f'Token {api_key}',
+            'Content-Type': 'application/json'
+        }
         res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code == 200 and res.json():
-            return "\n".join([f"- {article['title']}" for article in res.json()])
-        return "No recent news found."
-    except Exception:
-        return "Error fetching news."
+        
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                return "\n".join([f"- {article['title']}" for article in data])
+            return f"No recent news articles found for {ticker}."
+        elif res.status_code == 429:
+            return "⚠️ API Error: Tiingo Rate Limit Exceeded."
+        else:
+            return f"⚠️ API Error {res.status_code}: {res.text[:50]}"
+            
+    except requests.exceptions.Timeout:
+        return "⚠️ Error: News API connection timed out."
+    except Exception as e:
+        return f"⚠️ Error: {str(e)}"
 
 # --- HEADER ---
 st.title("🔥 Hype Hunter: Narrative & Momentum Terminal")
