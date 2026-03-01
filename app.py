@@ -156,7 +156,7 @@ with tab_port:
     st.subheader("Open Positions")
     df_p = get_portfolio_df()
     if not df_p.empty:
-        st.dataframe(df_p[df_p['ticker'] != 'CASH'], use_container_width=True, hide_index=True)
+        st.dataframe(df_p[df_p['Ticker'] != 'CASH'], use_container_width=True, hide_index=True)
     
     st.subheader("Trade Journal")
     st.dataframe(get_journal_df(), use_container_width=True, hide_index=True)
