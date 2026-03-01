@@ -216,24 +216,102 @@ with tab_risk:
                     st.error("Trade Denied: Insufficient Cash.")
 
 # ==========================================
-# TAB 4: PORTFOLIO
+# TAB 4: PORTFOLIO & MANAGEMENT
 # ==========================================
 with tab_port:
-    st.header("Portfolio Management & Trade History")
+    st.header("Phase 4: Fund Management & Execution")
     summary = pm.get_equity_summary()
-    
+
+    # Top Level Metrics
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Equity", f"${summary['total_equity']:,.2f}")
-    c2.metric("Cash Balance", f"${summary['cash']:,.2f}")
-    c3.metric("Invested Capital", f"${summary['invested']:,.2f}")
+    c1.metric("💰 Total Equity", f"${summary['total_equity']:,.2f}")
+    c2.metric("💵 Cash Balance", f"${summary['cash']:,.2f}")
+    c3.metric("📈 Invested Capital", f"${summary['invested']:,.2f}")
+
+    st.markdown("---")
+    st.subheader("🛠️ Trade Execution & Portfolio Editing")
+    m_col1, m_col2 = st.columns(2)
+
+    with m_col1:
+        with st.expander("➕ Add Single Position / Deposit Cash", expanded=False):
+            with st.form("buy_form"):
+                b_ticker = st.text_input("Ticker (Use 'USD' for Cash Deposit)", "AAPL").upper()
+                b_price = st.number_input("Entry Price (1.0 for USD)", min_value=0.0, value=1.0)
+                b_qty = st.number_input("Quantity", min_value=1.0, value=100.0)
+
+                if st.form_submit_button("Execute Buy / Deposit"):
+                    if b_ticker == 'USD':
+                        # Bypass the purchase check and inject cash directly via SQLite
+                        import sqlite3
+                        import time
+                        try:
+                            conn = sqlite3.connect("data/hedgefund.db")
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT id, quantity FROM portfolio WHERE ticker = 'USD'")
+                            row = cursor.fetchone()
+                            if row:
+                                cursor.execute("UPDATE portfolio SET quantity = ? WHERE id = ?", (row[1] + b_qty, row[0]))
+                            else:
+                                date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                cursor.execute("INSERT INTO portfolio (ticker, cost, quantity, status, date_acquired) VALUES ('USD', 1.0, ?, 'Liquid', ?)", (b_qty, date_str))
+                            conn.commit()
+                            conn.close()
+                            st.success(f"Deposited ${b_qty:,.2f} into cash reserves!")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to deposit cash: {e}")
+                    else:
+                        # Standard stock purchase logic
+                        if pm.execute_buy(b_ticker, b_price, b_qty, reason="Manual Entry"):
+                            import time
+                            st.success(f"Successfully bought {b_qty} of {b_ticker}!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Trade Failed. Check cash balance.")
+
+    with m_col2:
+        with st.expander("✂️ Sell / Trim Position", expanded=False):
+            with st.form("sell_form"):
+                s_ticker = st.text_input("Ticker to Sell").upper()
+                s_price = st.number_input("Exit Price", min_value=0.0, value=150.0)
+                s_qty = st.number_input("Quantity to Sell", min_value=1.0, value=10.0)
+
+                if st.form_submit_button("Execute Sell / Trim"):
+                    if pm.execute_sell(s_ticker, s_price, s_qty, reason="Manual Sell"):
+                        import time
+                        st.success(f"Successfully sold {s_qty} of {s_ticker}!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Failed. Ensure you own enough shares of this stock.")
+
+    st.markdown("---")
     
-    st.subheader("Open Positions")
+    # Holdings Display
+    st.subheader("📂 Open Positions")
     df_p = get_portfolio_df()
     if not df_p.empty:
-        # Match case 'Ticker' to your src/database.py dictionary
-        st.dataframe(df_p[df_p['Ticker'] != 'CASH'], use_container_width=True, hide_index=True)
+        # Filter out the cash row for the holdings table
+        holdings = df_p[~df_p['ticker'].isin(['USD', 'CASH'])].copy()
+        if not holdings.empty:
+            st.dataframe(
+                holdings.style.format({'cost': '${:.2f}', 'quantity': '{:.2f}', 'target': '${:.2f}'}),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.info("No active stock positions. Your portfolio is 100% cash.")
     else:
-        st.info("No active positions outside of cash.")
-        
-    st.subheader("Trade Journal")
-    st.dataframe(get_journal_df(), use_container_width=True, hide_index=True)
+        st.info("Portfolio is completely empty.")
+
+    # Trade Journal
+    st.subheader("📓 Trade Journal")
+    df_j = get_journal_df()
+    if not df_j.empty:
+        st.dataframe(
+            df_j.style.format({'entry': '${:.2f}', 'exit': '${:.2f}', 'pnl_abs': '${:.2f}', 'pnl_pct': '{:.2f}%'}),
+            use_container_width=True, hide_index=True
+        )
+    else:
+        st.info("No trades executed yet.")
