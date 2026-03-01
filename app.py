@@ -48,12 +48,17 @@ with tab_radar:
     st.header("Phase 1: Dynamic Discovery & RVOL Scan")
     st.write("Using Yahoo Finance to find today's top movers, then calculating RVOL and Velocity via Tiingo.")
     
+    # Initialize session state variables so data survives the download button
+    if "hype_scan_results" not in st.session_state:
+        st.session_state['hype_scan_results'] = None
+    if "hype_scan_debug" not in st.session_state:
+        st.session_state['hype_scan_debug'] = None
+    
     col1, col2 = st.columns([1, 3])
     with col1:
         min_rvol = st.slider("Minimum RVOL (Relative Volume)", min_value=1.0, max_value=10.0, value=2.0, step=0.5, 
                              help="2.0 means trading at 200% of its normal 20-day volume.")
         run_scan = st.button("🚀 Launch Dynamic Hype Scan", type="primary", use_container_width=True)
-        # NEW: Debug Checkbox
         show_debug = st.checkbox("Show Live Scan Logs (Transparency Mode)", value=True)
     
     with col2:
@@ -67,21 +72,20 @@ with tab_radar:
             added = [t.strip().upper() for t in custom_tickers.split(",") if t.strip()]
             dynamic_list.extend(added)
             
-        scan_list = list(set(dynamic_list)) # Remove duplicates
+        scan_list = list(set(dynamic_list))
             
         st.info(f"📡 API Connection Established. Scanning {len(scan_list)} dynamic targets...")
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         results = []
-        rejected_log = [] # Store rejected stocks for the debug view
+        rejected_log = []
         
         for i, ticker in enumerate(scan_list):
             status_text.text(f"Analyzing {ticker}...")
             metrics = scanner.get_hype_metrics(ticker)
             
             if metrics:
-                # Check logic explicitly to log reasons
                 rvol_pass = metrics['RVOL'] >= min_rvol
                 roc_pass = metrics['ROC_5_Days'] > 0
                 
@@ -89,7 +93,6 @@ with tab_radar:
                     results.append(metrics)
                     rejected_log.append({"Ticker": ticker, "RVOL": metrics['RVOL'], "Velocity": metrics['ROC_5_Days'], "Status": "✅ PASSED"})
                 else:
-                    # Log why it failed
                     reason = []
                     if not rvol_pass: reason.append(f"Low Vol ({metrics['RVOL']}x)")
                     if not roc_pass: reason.append(f"Neg Trend ({metrics['ROC_5_Days']}%)")
@@ -104,12 +107,24 @@ with tab_radar:
                  
             progress_bar.progress((i + 1) / len(scan_list))
             
-        status_text.empty() # Clear the "Analyzing..." text
-            
-        # --- DISPLAY RESULTS ---
+        status_text.empty()
+        
+        # Save results to session state instead of displaying immediately
         if results:
             df_results = pd.DataFrame(results).sort_values(by="RVOL", ascending=False)
-            st.success(f"🔥 Hype Detected! Found {len(df_results)} stocks anomalies.")
+            st.session_state['hype_scan_results'] = df_results
+            st.session_state['top_hype_tickers'] = df_results['Ticker'].tolist()
+        else:
+            st.session_state['hype_scan_results'] = pd.DataFrame() # Empty dataframe
+            
+        st.session_state['hype_scan_debug'] = pd.DataFrame(rejected_log)
+
+    # --- Render Scan UI out here so it survives the download button refresh ---
+    if st.session_state['hype_scan_results'] is not None:
+        df_results = st.session_state['hype_scan_results']
+        
+        if not df_results.empty:
+            st.success(f"🔥 Hype Detected! Found {len(df_results)} stocks exhibiting extreme volume anomalies.")
             
             def highlight_rvol(val):
                 if val >= 4.0: return 'background-color: #7f1d1d; color: white;' 
@@ -121,19 +136,26 @@ with tab_radar:
             }).map(highlight_rvol, subset=['RVOL'])
             
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
-            st.session_state['top_hype_tickers'] = df_results['Ticker'].tolist()
+            
+            # --- NEW: Download Button ---
+            from datetime import datetime
+            st.download_button(
+                label="📥 Download Hype Scan Results (CSV)",
+                data=df_results.to_csv(index=False).encode('utf-8'),
+                file_name=f"hype_hunter_scan_{datetime.today().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
         else:
             st.warning("No stocks met the strict Hype thresholds.")
 
-        # --- DEBUG / TRANSPARENCY SECTION ---
-        if show_debug and rejected_log:
-            st.divider()
-            with st.expander("🕵️‍♂️ Transparency Log: See What Was Scanned", expanded=True):
-                st.write(f"The scanner successfully processed **{len(rejected_log)}** unique tickers from the market.")
-                st.write("If this table is populated, your system is working perfectly—the market is just quiet.")
-                
-                debug_df = pd.DataFrame(rejected_log)
-                st.dataframe(debug_df, use_container_width=True, hide_index=True)
+        # --- DEBUG LOG ---
+        if show_debug and st.session_state['hype_scan_debug'] is not None:
+            debug_df = st.session_state['hype_scan_debug']
+            if not debug_df.empty:
+                st.divider()
+                with st.expander("🕵️‍♂️ Transparency Log: See What Was Scanned", expanded=True):
+                    st.write(f"The scanner successfully processed **{len(debug_df)}** unique tickers from the market.")
+                    st.dataframe(debug_df, use_container_width=True, hide_index=True)
 
 # ==========================================
 # TAB 2: DEEP DIVE & NARRATIVE GRADING
