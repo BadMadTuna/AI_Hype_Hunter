@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # Import our custom modules
 from src.discovery import DiscoveryEngine
 from src.hype_scanner import HypeScanner
-from src.sentiment import RedditScraper  # Hijacked for Short Squeeze Data
+from src.sentiment import RedditScraper 
 from src.ai_agent import HypeAgent
 from src.database import get_portfolio_df, get_journal_df, init_cash
 from src.portfolio import PortfolioManager
@@ -24,7 +24,7 @@ reddit = RedditScraper()
 agent = HypeAgent()
 pm = PortfolioManager()
 
-# Ensure DB is initialized on first run
+# Ensure DB is initialized
 init_cash(10000)
 
 # Helper function for Tiingo News
@@ -41,19 +41,20 @@ def fetch_recent_news(ticker, api_key):
         return f"⚠️ Error: {str(e)}"
 
 # --- HEADER ---
-st.set_page_config(page_title="Hype Hunter Pro", page_icon="🦅", layout="wide")
+st.set_page_config(page_title="Hype Hunter Terminal", page_icon="🦅", layout="wide")
 st.title("🦅 Hype Hunter: Institutional Momentum Terminal")
+st.markdown("---")
 
 # --- TABS ---
 tab_radar, tab_deep_dive, tab_risk, tab_port = st.tabs([
-    "📡 Radar Scan", "🧠 VC Deep Dive", "🛡️ Risk Simulator", "💼 Portfolio Manager"
+    "📡 Phase 1: Radar Scan", "🧠 Phase 2: VC Deep Dive", "🛡️ Phase 3: Risk Simulator", "💼 Phase 4: Portfolio"
 ])
 
 # ==========================================
-# TAB 1: RADAR SCAN (Functional & Transparent)
+# TAB 1: RADAR SCAN
 # ==========================================
 with tab_radar:
-    st.header("Phase 1: Dynamic Discovery & RVOL Scan")
+    st.header("Radar Scan: Discovery & RVOL Analysis")
     if "hype_scan_results" not in st.session_state: st.session_state['hype_scan_results'] = None
     if "hype_scan_debug" not in st.session_state: st.session_state['hype_scan_debug'] = None
     
@@ -61,7 +62,7 @@ with tab_radar:
     with col1:
         min_rvol = st.slider("Minimum RVOL", 1.0, 10.0, 2.0)
         show_debug = st.checkbox("Show Transparency Log", value=True)
-        run_scan = st.button("🚀 Launch Scan", type="primary", use_container_width=True)
+        run_scan = st.button("🚀 Launch Dynamic Scan", type="primary", use_container_width=True)
     
     if run_scan:
         with st.spinner("Hunting for anomalies..."):
@@ -80,83 +81,127 @@ with tab_radar:
 
     if st.session_state['hype_scan_results'] is not None:
         df = st.session_state['hype_scan_results']
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        st.download_button("📥 Download Results (CSV)", df.to_csv(index=False), "scan.csv", "text/csv")
+        if not df.empty:
+            st.success(f"🔥 Found {len(df)} High-Volume Anomalies.")
+            st.dataframe(df.style.format({'Price': '${:.2f}', 'RVOL': '{:.2f}x', 'ROC_5_Days': '{:.2f}%'}), use_container_width=True, hide_index=True)
+            st.download_button("📥 Download Scan (CSV)", df.to_csv(index=False), f"scan_{datetime.now().strftime('%Y%m%d')}.csv")
         
         if show_debug and st.session_state['hype_scan_debug'] is not None:
             with st.expander("🕵️ Transparency Log"):
-                st.dataframe(st.session_state['hype_scan_debug'], use_container_width=True)
+                st.dataframe(st.session_state['hype_scan_debug'], use_container_width=True, hide_index=True)
 
 # ==========================================
-# TAB 2: DEEP DIVE (AI & Short Data)
+# TAB 2: VC DEEP DIVE
 # ==========================================
 with tab_deep_dive:
-    st.header("Phase 2: Narrative Grading")
+    st.header("AI Narrative & Catalyst Grading")
     if "dd_data" not in st.session_state: st.session_state['dd_data'] = None
     
-    default_ticker = st.session_state.get('top_hype_tickers', ['SMCI'])[0]
-    target_ticker = st.text_input("Ticker to Analyze", value=default_ticker).upper()
+    ticker_list = st.session_state.get('top_hype_tickers', ['SMCI'])
+    target_ticker = st.text_input("Ticker to Analyze", value=ticker_list[0] if ticker_list else "SMCI").upper()
     
-    if st.button("🧠 Grade Catalyst", type="primary"):
-        with st.spinner("Analyzing Catalyst..."):
+    if st.button("🧠 Grade Narrative Catalyst", type="primary"):
+        with st.spinner(f"AI Deep Dive: {target_ticker}..."):
             metrics = scanner.get_hype_metrics(target_ticker)
             news = fetch_recent_news(target_ticker, os.getenv("TIINGO_API_KEY"))
-            squeeze = reddit.get_ticker_sentiment(target_ticker) # Short Data
+            squeeze = reddit.get_ticker_sentiment(target_ticker) 
             verdict = agent.get_hype_verdict(target_ticker, metrics, news, squeeze)
             st.session_state['dd_data'] = {'metrics': metrics, 'news': news, 'squeeze': squeeze, 'verdict': verdict, 'ticker': target_ticker}
 
     if st.session_state['dd_data']:
         d = st.session_state['dd_data']
         v = d['verdict']
-        st.metric("Frenzy Score", f"{v.get('hype_score')}/100")
-        st.markdown(f"### VC Thesis\n{v.get('vc_thesis')}")
-        # Add back the Memo Download
-        memo = f"Ticker: {d['ticker']}\nScore: {v.get('hype_score')}\n\n{v.get('vc_thesis')}"
-        st.download_button("📥 Download VC Memo", memo, f"{d['ticker']}_memo.txt")
+        m = d['metrics']
+        s = d['squeeze']
+        
+        # Metric Bar
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Price", f"${m['Price']}")
+        c2.metric("RVOL", f"{m['RVOL']}x")
+        c3.metric("5D Velocity", f"{m['ROC_5_Days']}%")
+        c4.metric("Short Float", s['mention_count'])
+        
+        # Context Expanders
+        col_news, col_sqz = st.columns(2)
+        with col_news:
+            with st.expander("📰 Recent Headlines", expanded=True):
+                st.text(d['news'])
+        with col_sqz:
+            with st.expander("🗜️ Short Squeeze Metrics", expanded=True):
+                for post in s['top_posts']: st.write(post)
+                
+        # AI Verdict
+        st.divider()
+        st.subheader("🤖 AI Venture Capital Verdict")
+        v_col1, v_col2 = st.columns([1, 2])
+        with v_col1:
+            st.metric("Frenzy Score", f"{v.get('hype_score')}/100")
+            st.info(f"**Catalyst:** {v.get('catalyst_tier')}")
+            st.success(f"**Action:** {v.get('verdict')}")
+        with v_col2:
+            st.markdown(f"### VC Thesis\n{v.get('vc_thesis')}")
+            
+        # Professional Memo Download
+        memo = f"# VC MEMO: {d['ticker']}\nScore: {v.get('hype_score')}/100\n\nTHESIS:\n{v.get('vc_thesis')}\n\nMETRICS:\n- RVOL: {m['RVOL']}x\n- Short: {s['mention_count']}"
+        st.download_button(f"📥 Download VC Memo for {d['ticker']}", memo, f"{d['ticker']}_memo.txt", use_container_width=True)
 
 # ==========================================
-# TAB 3: RISK SIMULATOR & EXECUTION
+# TAB 3: RISK SIMULATOR
 # ==========================================
 with tab_risk:
-    st.header("Phase 3: ATR Risk & Execution")
-    risk_ticker = st.text_input("Ticker to Size", value=st.session_state.get('dd_ticker', 'AAOI')).upper()
+    st.header("ATR Risk Simulator & Execution")
+    risk_ticker = st.text_input("Ticker to Size", value=st.session_state.get('dd_data', {}).get('ticker', 'AAOI')).upper()
     
-    if st.button("🛡️ Calculate ATR Risk"):
-        with st.spinner("Calculating..."):
-            stock = yf.Ticker(risk_ticker).history(period="1mo")
-            price = stock['Close'].iloc[-1]
-            atr = (stock['High'] - stock['Low']).mean()
-            stop = price - (atr * 2)
-            shares = int(100 / (price - stop)) if (price - stop) > 0 else 0
-            st.session_state['last_calc'] = {"ticker": risk_ticker, "price": round(price,2), "shares": shares, "stop": round(stop,2), "atr": round(atr,2)}
+    col_input, col_output = st.columns([1, 2])
+    with col_input:
+        acc_size = st.number_input("Account Size", value=10000)
+        risk_pct = st.slider("Risk % per Trade", 0.5, 5.0, 1.0)
+        if st.button("🛡️ Calculate Exit & Sizing", type="primary", use_container_width=True):
+            with st.spinner("Fetching Volatility..."):
+                stock = yf.Ticker(risk_ticker).history(period="1mo")
+                price = stock['Close'].iloc[-1]
+                atr = (stock['High'] - stock['Low']).mean()
+                stop = price - (atr * 2)
+                max_loss = acc_size * (risk_pct/100)
+                shares = int(max_loss / (price - stop)) if (price - stop) > 0 else 0
+                st.session_state['last_calc'] = {"ticker": risk_ticker, "price": round(price,2), "shares": shares, "stop": round(stop,2), "atr": round(atr,2), "max_loss": max_loss}
 
-    if "last_calc" in st.session_state:
-        lc = st.session_state['last_calc']
-        st.success(f"**Execution Plan for {lc['ticker']}**")
-        st.write(f"Entry: ${lc['price']} | Stop: ${lc['stop']} | ATR: ${lc['atr']}")
-        st.metric("Suggested Shares (Risk $100)", lc['shares'])
-        
-        if st.button(f"💳 Execute Buy Order"):
-            if pm.execute_buy(lc['ticker'], lc['price'], lc['shares']):
-                st.success("Order filled and logged to Portfolio.")
-            else:
-                st.error("Insufficient Cash.")
+    with col_output:
+        if "last_calc" in st.session_state:
+            lc = st.session_state['last_calc']
+            st.success(f"**Execution Plan: {lc['ticker']}**")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Entry", f"${lc['price']}")
+            m2.metric("Stop Loss", f"${lc['stop']}")
+            m3.metric("Shares", lc['shares'])
+            
+            st.info(f"📋 **Strict Plan:** Buy {lc['shares']} shares. If stopped at ${lc['stop']}, you lose exactly ${lc['max_loss']}.")
+            
+            if st.button(f"💳 Execute Buy Order", use_container_width=True):
+                if pm.execute_buy(lc['ticker'], lc['price'], lc['shares']):
+                    st.success(f"Order Filled: {lc['shares']} shares of {lc['ticker']} logged to Fund.")
+                else:
+                    st.error("Trade Denied: Insufficient Cash.")
 
 # ==========================================
-# TAB 4: PORTFOLIO MANAGER
+# TAB 4: PORTFOLIO
 # ==========================================
 with tab_port:
-    st.header("Phase 4: Real-Time Portfolio")
+    st.header("Portfolio Management & Trade History")
     summary = pm.get_equity_summary()
+    
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Equity", f"${summary['total_equity']:,.2f}")
-    c2.metric("Available Cash", f"${summary['cash']:,.2f}")
+    c2.metric("Cash Balance", f"${summary['cash']:,.2f}")
     c3.metric("Invested Capital", f"${summary['invested']:,.2f}")
     
     st.subheader("Open Positions")
     df_p = get_portfolio_df()
     if not df_p.empty:
+        # Match case 'Ticker' to your src/database.py dictionary
         st.dataframe(df_p[df_p['Ticker'] != 'CASH'], use_container_width=True, hide_index=True)
-    
+    else:
+        st.info("No active positions outside of cash.")
+        
     st.subheader("Trade Journal")
     st.dataframe(get_journal_df(), use_container_width=True, hide_index=True)
