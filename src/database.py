@@ -6,8 +6,11 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 # --- PATH SETUP ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(PROJECT_ROOT, 'data', 'hype_hunter.db')
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+DB_PATH = os.path.join(DATA_DIR, 'hedgefund.db')
+
+# Ensure the data directory exists
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # --- DATABASE SETUP ---
 engine = create_engine(f'sqlite:///{DB_PATH}', connect_args={'check_same_thread': False})
@@ -16,55 +19,64 @@ Base = declarative_base()
 
 # --- TABLE SCHEMAS ---
 class Position(Base):
+    """Represents an active holding in the portfolio."""
     __tablename__ = 'portfolio'
-    id = Column(Integer, primary_key=True)
-    ticker = Column(String, nullable=False)
-    cost = Column(Float)
-    quantity = Column(Float)
+    
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String, nullable=False, index=True)
+    cost = Column(Float, default=0.0)
+    quantity = Column(Float, default=0.0)
+    target = Column(Float, default=0.0)
+    status = Column(String, default="Open")
     date_acquired = Column(DateTime, default=datetime.now)
 
 class Trade(Base):
+    """Represents a closed or trimmed trade in the journal."""
     __tablename__ = 'journal'
-    id = Column(Integer, primary_key=True)
+    
+    id = Column(Integer, primary_key=True, index=True)
     date = Column(DateTime, default=datetime.now)
-    ticker = Column(String)
-    action = Column(String) # BUY, SELL
-    quantity = Column(Float)
-    price = Column(Float)
-    pnl_pct = Column(Float)
+    ticker = Column(String, nullable=False)
+    action = Column(String, nullable=False)  # BUY, SELL, TRIM
+    quantity = Column(Float, default=0.0)
+    entry_price = Column(Float, default=0.0)
+    exit_price = Column(Float, default=0.0)
+    pnl_pct = Column(Float, default=0.0)
+    pnl_abs = Column(Float, default=0.0)
+    reason = Column(String, default="")
 
-Base.metadata.create_all(bind=engine)
-
-# --- HELPER FUNCTIONS FOR STREAMLIT ---
-
-def init_cash(amount=10000.0):
-    """Sets the initial virtual trading balance."""
+# --- CORE FUNCTIONS ---
+def init_db():
+    """Creates the tables if they don't exist and seeds initial cash."""
+    Base.metadata.create_all(bind=engine)
+    
+    # Seed a default cash position if the portfolio is entirely empty
     db = SessionLocal()
-    # Using 'CASH' as the ticker for the balance row
-    if not db.query(Position).filter(Position.ticker == "CASH").first():
-        db.add(Position(ticker="CASH", quantity=amount, cost=1.0))
+    if db.query(Position).count() == 0:
+        # Using USD for Hype Hunter (vs EUR in the HedgeFund repo)
+        cash = Position(ticker="USD", cost=1.0, quantity=10000.0, target=0.0, status="Liquid")
+        db.add(cash)
         db.commit()
     db.close()
 
 def get_portfolio_df() -> pd.DataFrame:
-    """Returns current holdings as a Pandas DataFrame for the UI."""
+    """Returns the current portfolio as a Pandas DataFrame."""
     db = SessionLocal()
-    positions = db.query(Position).all()
+    positions = db.query(Position).filter(Position.quantity > 0).all()
     db.close()
     
     if not positions:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['id', 'ticker', 'cost', 'quantity', 'target', 'status', 'date_acquired'])
         
     data = [{
-        "Ticker": p.ticker, 
-        "Avg Cost": p.cost, 
-        "Quantity": p.quantity, 
-        "Acquired": p.date_acquired.strftime("%Y-%m-%d")
+        "id": p.id, "ticker": p.ticker, "cost": p.cost, 
+        "quantity": p.quantity, "target": p.target, 
+        "status": p.status, "date_acquired": p.date_acquired.strftime("%Y-%m-%d")
     } for p in positions]
     return pd.DataFrame(data)
 
 def get_journal_df() -> pd.DataFrame:
-    """Returns trade history as a Pandas DataFrame for the UI."""
+    """Returns the trade journal as a Pandas DataFrame."""
     db = SessionLocal()
     trades = db.query(Trade).order_by(Trade.date.desc()).all()
     db.close()
@@ -73,10 +85,8 @@ def get_journal_df() -> pd.DataFrame:
         return pd.DataFrame()
         
     data = [{
-        "Date": t.date.strftime("%Y-%m-%d %H:%M"), 
-        "Ticker": t.ticker, 
-        "Action": t.action, 
-        "Qty": t.quantity, 
-        "Price": t.price
+        "date": t.date.strftime("%Y-%m-%d %H:%M"), "ticker": t.ticker, 
+        "action": t.action, "quantity": t.quantity, "entry": t.entry_price, 
+        "exit": t.exit_price, "pnl_pct": t.pnl_pct, "pnl_abs": t.pnl_abs, "reason": t.reason
     } for t in trades]
     return pd.DataFrame(data)
