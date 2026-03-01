@@ -25,7 +25,7 @@ agent = HypeAgent()
 pm = PortfolioManager()
 
 # Ensure DB is initialized
-init_cash(5000)
+init_db()
 
 # Helper function for Tiingo News
 def fetch_recent_news(ticker, api_key):
