@@ -11,7 +11,7 @@ from src.discovery import DiscoveryEngine
 from src.hype_scanner import HypeScanner
 from src.sentiment import RedditScraper 
 from src.ai_agent import HypeAgent
-from src.database import get_portfolio_df, get_journal_df, init_cash
+from src.database import get_portfolio_df, get_journal_df, init_db
 from src.portfolio import PortfolioManager
 
 # Load environment variables
@@ -25,7 +25,7 @@ agent = HypeAgent()
 pm = PortfolioManager()
 
 # Ensure DB is initialized
-init_cash(10000)
+init_cash(5000)
 
 # Helper function for Tiingo News
 def fetch_recent_news(ticker, api_key):
