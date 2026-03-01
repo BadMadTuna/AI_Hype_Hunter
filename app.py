@@ -49,10 +49,10 @@ def fetch_recent_news(ticker, api_key):
 # --- HEADER ---
 st.set_page_config(page_title="Hype Hunter Terminal", page_icon="🔥", layout="wide")
 st.title("🔥 Hype Hunter: Narrative & Momentum Terminal")
-st.markdown("Dynamically hunting for extreme volume anomalies and grading their narrative catalysts.")
+st.markdown("Dynamically hunting for extreme volume anomalies, grading their catalysts, and managing risk.")
 
 # --- TABS ---
-tab_radar, tab_deep_dive = st.tabs(["📡 Phase 1: Radar Scan", "🧠 Phase 2: VC Deep Dive"])
+tab_radar, tab_deep_dive, tab_risk = st.tabs(["📡 Phase 1: Radar Scan", "🧠 Phase 2: VC Deep Dive", "🛡️ Phase 3: Risk Simulator"])
 
 # ==========================================
 # TAB 1: RADAR SCAN
@@ -182,7 +182,7 @@ with tab_deep_dive:
         st.session_state['dd_ticker'] = None
         
     default_ticker = "SMCI"
-    if 'top_hype_tickers' in st.session_state and st.session_state['top_hype_tickers']:
+    if 'top_hype_tickers' in st.session_state and st.session_state['top_hype_tickers'] and len(st.session_state['top_hype_tickers']) > 0:
         default_ticker = st.session_state['top_hype_tickers'][0]
         
     target_ticker = st.text_input("Ticker to Analyze", value=default_ticker).upper()
@@ -298,3 +298,77 @@ Date Generated: {datetime.today().strftime('%Y-%m-%d')}
             mime="text/plain",
             use_container_width=True
         )
+
+# ==========================================
+# TAB 3: ATR RISK SIMULATOR
+# ==========================================
+with tab_risk:
+    st.header("Phase 3: ATR Dynamic Risk Simulator")
+    st.write("Calculate mathematical trailing stops and exact position sizing to survive hyper-volatile runners.")
+    
+    # Helper function to calculate ATR via yfinance
+    def get_atr_data(ticker_symbol, window=14):
+        import yfinance as yf
+        try:
+            stock = yf.Ticker(ticker_symbol)
+            df = stock.history(period="1mo")
+            if df.empty or len(df) < window: return None, None
+            
+            # Math for True Range
+            df['Prev_Close'] = df['Close'].shift(1)
+            df['TR1'] = df['High'] - df['Low']
+            df['TR2'] = abs(df['High'] - df['Prev_Close'])
+            df['TR3'] = abs(df['Low'] - df['Prev_Close'])
+            df['TR'] = df[['TR1', 'TR2', 'TR3']].max(axis=1)
+            
+            atr = df['TR'].rolling(window=window).mean().iloc[-1]
+            current_price = df['Close'].iloc[-1]
+            return round(float(atr), 2), round(float(current_price), 2)
+        except Exception as e:
+            return None, None
+
+    r_col1, r_col2 = st.columns([1, 2])
+    
+    with r_col1:
+        st.subheader("Trade Parameters")
+        default_risk_ticker = st.session_state.get('dd_ticker', 'AAOI')
+        risk_ticker = st.text_input("Ticker", value=default_risk_ticker, key="risk_ticker_input").upper()
+        account_size = st.number_input("Total Account Size ($)", min_value=1000, value=10000, step=1000)
+        risk_pct = st.slider("Account Risk % (If stopped out)", min_value=0.5, max_value=5.0, value=1.0, step=0.1)
+        atr_multiplier = st.slider("ATR Multiplier (Wiggle Room)", min_value=1.0, max_value=4.0, value=2.0, step=0.5)
+        
+        calc_btn = st.button("🛡️ Calculate Safe Entry & Exit", type="primary", use_container_width=True)
+        
+    with r_col2:
+        st.subheader("Execution Plan")
+        if calc_btn:
+            with st.spinner(f"Calculating mathematical volatility for {risk_ticker}..."):
+                atr_val, current_price = get_atr_data(risk_ticker)
+                
+            if atr_val is None:
+                st.error("Could not fetch ATR data. Try a different ticker.")
+            else:
+                # The Math
+                stop_loss_dist = atr_val * atr_multiplier
+                stop_loss_price = current_price - stop_loss_dist
+                
+                max_loss_dollars = account_size * (risk_pct / 100)
+                shares_to_buy = int(max_loss_dollars / stop_loss_dist) if stop_loss_dist > 0 else 0
+                total_investment = shares_to_buy * current_price
+                
+                st.success(f"**Target Analyzed:** {risk_ticker} at ${current_price}")
+                
+                m1, m2, m3 = st.columns(3)
+                m1.metric("14-Day ATR", f"${atr_val}/day", help="How much this stock normally swings in a single day.")
+                m2.metric("Hard Stop Loss", f"${stop_loss_price:.2f}", f"-${stop_loss_dist:.2f} away")
+                m3.metric("Shares to Buy", shares_to_buy)
+                
+                st.divider()
+                st.markdown("### 📋 Your Strict Trading Plan")
+                st.markdown(f"""
+                1. **Buy** **{shares_to_buy}** shares of {risk_ticker} right now at roughly **${current_price}**.
+                2. Your total capital deployed will be **${total_investment:,.2f}**.
+                3. **Immediately set a hard stop-loss at ${stop_loss_price:.2f}**. 
+                4. If the trade fails and hits your stop, you will only lose exactly **${max_loss_dollars:,.2f}** ({risk_pct}% of your account).
+                5. **Trailing Rule:** For every day {risk_ticker} goes up, recalculate the ATR and move your stop loss up behind it. Never move it down.
+                """)
