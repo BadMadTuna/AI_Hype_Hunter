@@ -331,8 +331,16 @@ with tab_risk:
     
     with r_col1:
         st.subheader("Trade Parameters")
-        default_risk_ticker = st.session_state.get('dd_ticker', 'AAOI')
-        risk_ticker = st.text_input("Ticker", value=default_risk_ticker, key="risk_ticker_input").upper()
+        
+        # FIX: Explicitly check for None so we always have a string
+        default_risk_ticker = st.session_state.get('dd_ticker')
+        if not default_risk_ticker:
+            default_risk_ticker = 'AAOI'
+            
+        # Safely apply .upper() only if the input is a valid string
+        raw_ticker = st.text_input("Ticker", value=default_risk_ticker, key="risk_ticker_input")
+        risk_ticker = raw_ticker.upper() if raw_ticker else ""
+        
         account_size = st.number_input("Total Account Size ($)", min_value=1000, value=10000, step=1000)
         risk_pct = st.slider("Account Risk % (If stopped out)", min_value=0.5, max_value=5.0, value=1.0, step=0.1)
         atr_multiplier = st.slider("ATR Multiplier (Wiggle Room)", min_value=1.0, max_value=4.0, value=2.0, step=0.5)
