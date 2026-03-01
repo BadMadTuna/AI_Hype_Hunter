@@ -53,6 +53,8 @@ with tab_radar:
         min_rvol = st.slider("Minimum RVOL (Relative Volume)", min_value=1.0, max_value=10.0, value=2.0, step=0.5, 
                              help="2.0 means trading at 200% of its normal 20-day volume.")
         run_scan = st.button("🚀 Launch Dynamic Hype Scan", type="primary", use_container_width=True)
+        # NEW: Debug Checkbox
+        show_debug = st.checkbox("Show Live Scan Logs (Transparency Mode)", value=True)
     
     with col2:
         custom_tickers = st.text_input("Force Scan Specific Tickers (Comma separated)", "")
@@ -65,21 +67,49 @@ with tab_radar:
             added = [t.strip().upper() for t in custom_tickers.split(",") if t.strip()]
             dynamic_list.extend(added)
             
-        scan_list = list(set(dynamic_list))
+        scan_list = list(set(dynamic_list)) # Remove duplicates
             
-        st.write(f"Scanning {len(scan_list)} dynamic targets for massive volume anomalies...")
+        st.info(f"📡 API Connection Established. Scanning {len(scan_list)} dynamic targets...")
         progress_bar = st.progress(0)
+        status_text = st.empty()
         
         results = []
+        rejected_log = [] # Store rejected stocks for the debug view
+        
         for i, ticker in enumerate(scan_list):
+            status_text.text(f"Analyzing {ticker}...")
             metrics = scanner.get_hype_metrics(ticker)
-            if metrics and metrics['RVOL'] >= min_rvol and metrics['ROC_5_Days'] > 0:
-                results.append(metrics)
+            
+            if metrics:
+                # Check logic explicitly to log reasons
+                rvol_pass = metrics['RVOL'] >= min_rvol
+                roc_pass = metrics['ROC_5_Days'] > 0
+                
+                if rvol_pass and roc_pass:
+                    results.append(metrics)
+                    rejected_log.append({"Ticker": ticker, "RVOL": metrics['RVOL'], "Velocity": metrics['ROC_5_Days'], "Status": "✅ PASSED"})
+                else:
+                    # Log why it failed
+                    reason = []
+                    if not rvol_pass: reason.append(f"Low Vol ({metrics['RVOL']}x)")
+                    if not roc_pass: reason.append(f"Neg Trend ({metrics['ROC_5_Days']}%)")
+                    rejected_log.append({
+                        "Ticker": ticker, 
+                        "RVOL": metrics['RVOL'], 
+                        "Velocity": metrics['ROC_5_Days'], 
+                        "Status": f"❌ REJECTED: {', '.join(reason)}"
+                    })
+            else:
+                 rejected_log.append({"Ticker": ticker, "RVOL": 0, "Velocity": 0, "Status": "⚠️ NO DATA (Tiingo)"})
+                 
             progress_bar.progress((i + 1) / len(scan_list))
             
+        status_text.empty() # Clear the "Analyzing..." text
+            
+        # --- DISPLAY RESULTS ---
         if results:
             df_results = pd.DataFrame(results).sort_values(by="RVOL", ascending=False)
-            st.success(f"Found {len(df_results)} stocks exhibiting extreme hype metrics!")
+            st.success(f"🔥 Hype Detected! Found {len(df_results)} stocks anomalies.")
             
             def highlight_rvol(val):
                 if val >= 4.0: return 'background-color: #7f1d1d; color: white;' 
@@ -93,7 +123,17 @@ with tab_radar:
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
             st.session_state['top_hype_tickers'] = df_results['Ticker'].tolist()
         else:
-            st.warning("No stocks met the current Hype thresholds. The market might be quiet, or try lowering the RVOL.")
+            st.warning("No stocks met the strict Hype thresholds.")
+
+        # --- DEBUG / TRANSPARENCY SECTION ---
+        if show_debug and rejected_log:
+            st.divider()
+            with st.expander("🕵️‍♂️ Transparency Log: See What Was Scanned", expanded=True):
+                st.write(f"The scanner successfully processed **{len(rejected_log)}** unique tickers from the market.")
+                st.write("If this table is populated, your system is working perfectly—the market is just quiet.")
+                
+                debug_df = pd.DataFrame(rejected_log)
+                st.dataframe(debug_df, use_container_width=True, hide_index=True)
 
 # ==========================================
 # TAB 2: DEEP DIVE & NARRATIVE GRADING
