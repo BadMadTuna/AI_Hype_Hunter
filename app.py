@@ -432,3 +432,43 @@ with tab_port:
     df_j = get_journal_df()
     if not df_j.empty:
         st.dataframe(df_j.style.format({'entry': '€{:.2f}', 'exit': '€{:.2f}', 'pnl_abs': '€{:.2f}', 'pnl_pct': '{:.2f}%'}), use_container_width=True, hide_index=True)
+
+    # 8. AI Guardian Exit Audit
+    st.markdown("---")
+    st.subheader("🛡️ AI Guardian: Position Exit Auditor")
+    st.write("Run a strict risk-management audit on your open positions to determine if you should KEEP, TRIM, or SELL.")
+    
+    if st.button("🚨 Run Exit Analysis on Open Positions", use_container_width=True):
+        if st.session_state.get('live_port_df') is not None:
+            holdings = st.session_state.live_port_df[~st.session_state.live_port_df['ticker'].isin(['EUR', 'USD', 'CASH'])]
+            if not holdings.empty:
+                with st.spinner("The Guardian is analyzing your live positions and news catalysts..."):
+                    for _, row in holdings.iterrows():
+                        ticker = row['ticker']
+                        cost = row['cost']
+                        live_price = row['Live Price (€)']
+                        pnl_pct = row['PnL (%)']
+                        
+                        # Fetch fresh news for the context
+                        news = fetch_recent_news(ticker, os.getenv("TIINGO_API_KEY"))
+                        
+                        # Call the AI Guardian
+                        audit = agent.get_guardian_audit(ticker, cost, live_price, pnl_pct, news)
+                        
+                        with st.container(border=True):
+                            action = str(audit.get('action', 'KEEP')).upper()
+                            color = "red" if 'SELL' in action else "orange" if 'TRIM' in action else "green" if 'KEEP' in action else "blue"
+                            
+                            st.markdown(f"### {ticker} | Action: :{color}[**{action}**]")
+                            
+                            m1, m2, m3 = st.columns(3)
+                            m1.metric("Live PnL", f"{pnl_pct:.2f}%")
+                            m2.metric("Cost Basis", f"€{cost:.2f}")
+                            m3.metric("Live Price", f"€{live_price:.2f}")
+                            
+                            st.write(f"**AI Advice:** {audit.get('reasoning', '')}")
+                            st.info(f"**Execution Plan:** {audit.get('proposed_stop', '')}")
+            else:
+                st.warning("No active stock positions to analyze. Go buy something!")
+        else:
+            st.warning("⚠️ Please click the blue 'Refresh Live Prices & PnL' button at the top of the tab first so the Guardian has real-time data to analyze.")

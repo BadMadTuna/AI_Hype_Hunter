@@ -52,3 +52,46 @@ class HypeAgent:
             return json.loads(clean_text)
         except Exception as e:
             return {"hype_score": 0, "catalyst_tier": "Error", "verdict": "ERROR", "vc_thesis": f"AI Error: {e}"}
+        
+    def get_guardian_audit(self, ticker, cost, live_price, pnl_pct, news):
+        """
+        The Guardian: Ruthlessly manages your existing portfolio risk.
+        """
+        system_prompt = f"""
+        You are the Chief Risk Officer for a quantitative hedge fund. 
+        Your job is to audit an open position in the portfolio and enforce strict risk management rules.
+        
+        TICKER: {ticker}
+        ENTRY COST: {cost}
+        LIVE PRICE: {live_price}
+        CURRENT PNL %: {pnl_pct:.2f}%
+        RECENT NEWS: {news}
+        
+        YOUR RUTHLESS RULES:
+        1. CUT LOSERS: If CURRENT PNL % is worse than -8.0%, you MUST advise "SELL". Capital preservation is priority #1.
+        2. TAKE PROFITS: If CURRENT PNL % is greater than +20.0%, you MUST advise "TRIM" to lock in partial gains.
+        3. LET WINNERS RIDE: If PNL is between 0% and +19%, advise "KEEP" but propose a trailing stop loss at the 20-day moving average or 8% below current price.
+        4. UNDERWATER BUT SAFE: If PNL is between -0.1% and -7.9%, advise "WATCH" and define the exact hard stop loss price.
+        
+        You MUST respond ONLY in this exact JSON format. Do not include any other text:
+        {{
+            "action": "KEEP" or "TRIM" or "SELL" or "WATCH",
+            "reasoning": "[2 sentences explaining the action based on the rules and news]",
+            "proposed_stop": "[Exact dollar/euro amount or logic, e.g., 'Trail stop at €X']"
+        }}
+        """
+        
+        try:
+            # Note: Adjust self.model to match whatever variable name you used in your init
+            response = self.model.generate_content(system_prompt)
+            
+            # Clean JSON
+            text = response.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            if text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+                
+            import json
+            return json.loads(text.strip())
+        except Exception as e:
+            return {"action": "ERROR", "reasoning": f"AI parsing failed: {e}", "proposed_stop": "N/A"}
