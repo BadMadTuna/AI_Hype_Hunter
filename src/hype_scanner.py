@@ -72,8 +72,22 @@ class HypeScanner:
             tod_weight = self.get_tod_weight(last_candle_date)
             expected_vol_so_far = avg_vol * tod_weight
             
-            # Calculate True Intraday RVOL
+           # Calculate True Intraday RVOL
             rvol = current_vol / expected_vol_so_far if expected_vol_so_far > 0 else 0
+            
+            # --- INSTITUTIONAL QUANT GRADING ---
+            if current_vol < 2000000:
+                grade = "🗑️ Illiquid (Ignore)"
+            elif roc_5d > 50.0:
+                grade = "⚠️ Retail Trap (Parabolic)"
+            elif 25.0 <= roc_5d <= 50.0 and rvol >= 2.5:
+                grade = "🧨 High-Risk Squeeze"
+            elif 5.0 <= roc_5d < 25.0 and rvol >= 2.5:
+                grade = "🥇 Prime Setup"
+            elif rvol >= 2.5:
+                grade = "👀 Volume Only (Watch)"
+            else:
+                grade = "Dormant"
             
             return {
                 "Ticker": ticker,
@@ -81,7 +95,8 @@ class HypeScanner:
                 "RVOL": round(rvol, 2),
                 "ROC_5_Days": round(roc_5d, 2),
                 "Current_Volume": int(current_vol),
-                "Expected_Volume": int(expected_vol_so_far)
+                "Expected_Volume": int(expected_vol_so_far),
+                "Quant_Grade": grade
             }
         except Exception:
             return None
