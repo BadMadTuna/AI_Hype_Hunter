@@ -100,3 +100,80 @@ class HypeScanner:
             }
         except Exception:
             return None
+        
+    def get_bulk_hype_metrics(self, tickers: list) -> list:
+        """Fetches technical data for multiple tickers in a single bulk request."""
+        if not tickers:
+            return []
+            
+        try:
+            # The magic: download all tickers at once, using threads
+            data = yf.download(tickers, period="1mo", group_by="ticker", threads=True, progress=False)
+            
+            bulk_results = []
+            
+            # If only one ticker was passed, yfinance doesn't use a MultiIndex column structure
+            if len(tickers) == 1:
+                metric = self.get_hype_metrics(tickers[0])
+                return [metric] if metric else []
+
+            for ticker in tickers:
+                try:
+                    # Extract the specific ticker's dataframe from the MultiIndex
+                    hist = data[ticker].dropna()
+                    
+                    if len(hist) < 6:
+                        continue
+                        
+                    # Grab the date of the very last candle (Safe extraction)
+                    try:
+                        last_candle_date = hist.index[-1].date()
+                    except AttributeError:
+                        last_candle_date = hist.index[-1]
+                    
+                    current_price = float(hist['Close'].iloc[-1])
+                    price_5d_ago = float(hist['Close'].iloc[-6])
+                    roc_5d = ((current_price - price_5d_ago) / price_5d_ago) * 100
+                    
+                    current_vol = float(hist['Volume'].iloc[-1])
+                    avg_vol = float(hist['Volume'].iloc[:-1].tail(20).mean())
+                    
+                    if avg_vol == 0:
+                        continue
+                        
+                    tod_weight = self.get_tod_weight(last_candle_date)
+                    expected_vol_so_far = avg_vol * tod_weight
+                    
+                    rvol = current_vol / expected_vol_so_far if expected_vol_so_far > 0 else 0
+                    
+                    # Institutional Quant Grading
+                    if current_vol < 2000000:
+                        grade = "🗑️ Illiquid (Ignore)"
+                    elif roc_5d > 50.0:
+                        grade = "⚠️ Retail Trap (Parabolic)"
+                    elif 25.0 <= roc_5d <= 50.0 and rvol >= 2.5:
+                        grade = "🧨 High-Risk Squeeze"
+                    elif 5.0 <= roc_5d < 25.0 and rvol >= 2.5:
+                        grade = "🥇 Prime Setup"
+                    elif rvol >= 2.5:
+                        grade = "👀 Volume Only (Watch)"
+                    else:
+                        grade = "Dormant"
+                    
+                    bulk_results.append({
+                        "Ticker": ticker,
+                        "Price": round(current_price, 2),
+                        "RVOL": round(rvol, 2),
+                        "ROC_5_Days": round(roc_5d, 2),
+                        "Current_Volume": int(current_vol),
+                        "Expected_Volume": int(expected_vol_so_far),
+                        "Quant_Grade": grade
+                    })
+                except Exception:
+                    # If a specific ticker fails, skip it and continue the loop
+                    continue
+                    
+            return bulk_results
+        except Exception as e:
+            print(f"Bulk download failed: {e}")
+            return []

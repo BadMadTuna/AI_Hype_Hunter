@@ -77,37 +77,26 @@ with tab_radar:
         run_scan = st.button("🚀 Launch Dynamic Scan", type="primary", use_container_width=True)
     
     if run_scan:
-        with st.spinner("Hunting for anomalies..."):
+        with st.spinner("Hunting for anomalies (Bulk Download Initiated)..."):
             scan_list = list(set(discovery.get_live_market_movers()))
-            results, rejected = [], []
             total_tickers = len(scan_list)
             
-            st.info(f"📡 API Connection Established. Scanning {total_tickers} dynamic targets...")
+            st.info(f"📡 API Connection Established. Batch-downloading {total_tickers} dynamic targets...")
             
-            # --- PROGRESS BAR RESTORED ---
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            # Execute the bulk fetch
+            all_metrics = scanner.get_bulk_hype_metrics(scan_list)
             
-            for i, t in enumerate(scan_list):
-                # Update the live text
-                status_text.text(f"Analyzing {t} ({i+1}/{total_tickers})...")
-                
-                # Fetch metrics
-                m = scanner.get_hype_metrics(t)
-                if m and m['RVOL'] >= min_rvol:
+            results, rejected = [], []
+            
+            # Sort the results based on the user's min_rvol slider
+            for m in all_metrics:
+                if m['RVOL'] >= min_rvol:
                     results.append(m)
-                elif m:
-                    rejected.append({"Ticker": t, "RVOL": m['RVOL'], "Status": "❌ Low Vol"})
-                
-                # Tick the progress bar forward
-                progress_bar.progress((i + 1) / total_tickers)
-            
-            # Clear the status text when finished
-            status_text.empty()
-            # -----------------------------
+                else:
+                    rejected.append({"Ticker": m['Ticker'], "RVOL": m['RVOL'], "Status": "❌ Low Vol"})
             
             # Save to session state
-            st.session_state['hype_scan_results'] = pd.DataFrame(results).sort_values(by="RVOL", ascending=False)
+            st.session_state['hype_scan_results'] = pd.DataFrame(results).sort_values(by="RVOL", ascending=False) if results else pd.DataFrame()
             st.session_state['hype_scan_debug'] = pd.DataFrame(rejected)
             st.session_state['top_hype_tickers'] = st.session_state['hype_scan_results']['Ticker'].tolist() if results else []
 
