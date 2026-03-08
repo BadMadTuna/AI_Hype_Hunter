@@ -27,7 +27,7 @@ class HypeAgent:
         TICKER: {ticker}
         HYPE METRICS (Volume & Velocity): {hype_metrics}
         RECENT NEWS & CATALYSTS: {news}
-        WALLSTREETBETS SENTIMENT: {social_data}
+        SHORT SQUEEZE METRICS: {social_data}
         
         YOUR RULES:
         1. Ignore traditional valuation. We only care about ATTENTION, NARRATIVE, and CROWD PSYCHOLOGY.
@@ -35,15 +35,15 @@ class HypeAgent:
            - 'Tier 1 Structural': Paradigm shift, massive new TAM, AI breakthroughs.
            - 'Tier 2 Material': Massive earnings beat, multi-year contract, extreme retail short-squeeze.
            - 'Tier 3 Fluff': Analyst upgrades, CEO buzzwords.
-        3. Evaluate the WSB Data: If the algorithm says "BULLISH" and there are high discussion threads, drastically increase the Hype Score.
-        4. Provide a punchy, 2-3 sentence thesis focused on the narrative and crowd momentum.
+        3. Evaluate the Short Squeeze Metrics: High short interest (>10%) combined with high RVOL means short sellers are trapped. Increase the Hype Score significantly if these align.
+        4. Provide a punchy, 2-3 sentence thesis focused on the narrative and crowd momentum. Do NOT mention WallStreetBets, Reddit, or social media.
         
         You MUST respond ONLY in this exact JSON format. Do not include any other text:
         {{
             "hype_score": [Integer 0-100 indicating crowd frenzy and narrative strength],
             "catalyst_tier": "Tier 1 Structural" or "Tier 2 Material" or "Tier 3 Fluff",
             "verdict": "RIDE THE HYPE" or "WATCH" or "FADE (Sell Short)",
-            "vc_thesis": "[Your 2-3 sentence narrative thesis incorporating the WSB sentiment]"
+            "vc_thesis": "[Your 2-3 sentence narrative thesis incorporating the short squeeze metrics]"
         }}
         """
         try:
