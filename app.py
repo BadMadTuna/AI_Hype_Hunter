@@ -77,14 +77,40 @@ with tab_radar:
         run_scan = st.button("🚀 Launch Dynamic Scan", type="primary", use_container_width=True)
     
     if run_scan:
-        with st.spinner("Hunting for anomalies (Bulk Download Initiated)..."):
-            scan_list = list(set(discovery.get_live_market_movers()))
-            total_tickers = len(scan_list)
+        scan_list = list(set(discovery.get_live_market_movers()))
+        total_tickers = len(scan_list)
+        
+        if total_tickers == 0:
+            st.warning("⚠️ No active market movers found currently.")
+        else:
+            st.info(f"📡 API Connection Established. Locking onto {total_tickers} targets...")
             
-            st.info(f"📡 API Connection Established. Batch-downloading {total_tickers} dynamic targets...")
+            # --- NEW: UI Elements for Live Feedback ---
+            progress_bar = st.progress(0)
+            status_text = st.empty() 
             
-            # Execute the bulk fetch
-            all_metrics = scanner.get_bulk_hype_metrics(scan_list)
+            all_metrics = []
+            chunk_size = 15 # Process in smaller batches
+            
+            # --- NEW: Chunked Execution Loop ---
+            for i in range(0, total_tickers, chunk_size):
+                chunk = scan_list[i : i + chunk_size]
+                
+                # Update the UI text
+                current_count = min(i + chunk_size, total_tickers)
+                status_text.markdown(f"**🔍 Radar Sweeping:** Analyzing batch (`{', '.join(chunk[:3])}...`) - **{current_count} / {total_tickers}**")
+                
+                # Fetch the chunk using your existing scanner method
+                chunk_metrics = scanner.get_bulk_hype_metrics(chunk)
+                if chunk_metrics:
+                    all_metrics.extend(chunk_metrics)
+                
+                # Update the progress bar
+                progress_pct = current_count / total_tickers
+                progress_bar.progress(progress_pct)
+                
+            status_text.success("✅ Radar Scan Complete!")
+            # ----------------------------------------
             
             results, rejected = [], []
             
