@@ -9,16 +9,6 @@ class HypeAgent:
             genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel('gemini-2.5-flash')
 
-    def _clean_json(self, text):
-        text = text.strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        return text.strip()
-
     def get_hype_verdict(self, ticker: str, hype_metrics: dict, news: str, social_data: dict):
         system_prompt = f"""
         You are a highly aggressive Momentum Trader and Venture Capitalist.
@@ -38,7 +28,7 @@ class HypeAgent:
         3. Evaluate the Short Squeeze Metrics: High short interest (>10%) combined with high RVOL means short sellers are trapped. Increase the Hype Score significantly if these align.
         4. Provide a punchy, 2-3 sentence thesis focused on the narrative and crowd momentum. Do NOT mention WallStreetBets, Reddit, or social media.
         
-        You MUST respond ONLY in this exact JSON format. Do not include any other text:
+        You MUST respond ONLY in this exact JSON format.
         {{
             "hype_score": [Integer 0-100 indicating crowd frenzy and narrative strength],
             "catalyst_tier": "Tier 1 Structural" or "Tier 2 Material" or "Tier 3 Fluff",
@@ -47,16 +37,16 @@ class HypeAgent:
         }}
         """
         try:
-            response = self.model.generate_content(system_prompt)
-            clean_text = self._clean_json(response.text)
-            return json.loads(clean_text)
+            # CLEAN FIX: Force JSON output at the API level
+            response = self.model.generate_content(
+                system_prompt,
+                generation_config=genai.GenerationConfig(response_mime_type="application/json")
+            )
+            return json.loads(response.text)
         except Exception as e:
             return {"hype_score": 0, "catalyst_tier": "Error", "verdict": "ERROR", "vc_thesis": f"AI Error: {e}"}
         
     def get_guardian_audit(self, ticker, cost, live_price, pnl_pct, news):
-        """
-        The Guardian: Ruthlessly manages your existing portfolio risk.
-        """
         system_prompt = f"""
         You are the Chief Risk Officer for a quantitative hedge fund. 
         Your job is to audit an open position in the portfolio and enforce strict risk management rules.
@@ -73,25 +63,19 @@ class HypeAgent:
         3. LET WINNERS RIDE: If PNL is between 0% and +19%, advise "KEEP" but propose a trailing stop loss at the 20-day moving average or 8% below current price.
         4. UNDERWATER BUT SAFE: If PNL is between -0.1% and -7.9%, advise "WATCH" and define the exact hard stop loss price.
         
-        You MUST respond ONLY in this exact JSON format. Do not include any other text:
+        You MUST respond ONLY in this exact JSON format.
         {{
             "action": "KEEP" or "TRIM" or "SELL" or "WATCH",
             "reasoning": "[2 sentences explaining the action based on the rules and news]",
             "proposed_stop": "[Exact dollar/euro amount or logic, e.g., 'Trail stop at €X']"
         }}
         """
-        
         try:
-            # Note: Adjust self.model to match whatever variable name you used in your init
-            response = self.model.generate_content(system_prompt)
-            
-            # Clean JSON
-            text = response.text.strip()
-            if text.startswith("```json"): text = text[7:]
-            if text.startswith("```"): text = text[3:]
-            if text.endswith("```"): text = text[:-3]
-                
-            import json
-            return json.loads(text.strip())
+            # CLEAN FIX: Force JSON output at the API level
+            response = self.model.generate_content(
+                system_prompt,
+                generation_config=genai.GenerationConfig(response_mime_type="application/json")
+            )
+            return json.loads(response.text)
         except Exception as e:
             return {"action": "ERROR", "reasoning": f"AI parsing failed: {e}", "proposed_stop": "N/A"}

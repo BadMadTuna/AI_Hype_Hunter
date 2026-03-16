@@ -379,25 +379,20 @@ with tab_port:
 
                 if st.form_submit_button("Execute Buy / Deposit"):
                     if b_ticker == 'EUR':
-                        import sqlite3, time
-                        try:
-                            conn = sqlite3.connect("data/hedgefund.db")
-                            cursor = conn.cursor()
-                            cursor.execute("SELECT id, quantity FROM portfolio WHERE ticker = 'EUR'")
-                            row = cursor.fetchone()
-                            if row:
-                                cursor.execute("UPDATE portfolio SET quantity = ? WHERE id = ?", (row[1] + b_qty, row[0]))
-                            else:
-                                date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                cursor.execute("INSERT INTO portfolio (ticker, cost, quantity, status, date_acquired) VALUES ('EUR', 1.0, ?, 'Liquid', ?)", (b_qty, date_str))
-                            conn.commit(); conn.close()
-                            st.success(f"Deposited €{b_qty:,.2f} into cash reserves!"); time.sleep(1); st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to deposit cash: {e}")
+                        # CLEAN FIX: Use the PortfolioManager instead of raw SQLite
+                        if pm.deposit_cash(b_qty):
+                            import time
+                            st.success(f"Deposited €{b_qty:,.2f} into cash reserves!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Failed to deposit cash.")
                     else:
                         if pm.execute_buy(b_ticker, b_price, b_qty, reason="Manual Entry"):
                             import time
-                            st.success(f"Successfully bought {b_qty} of {b_ticker}!"); time.sleep(1); st.rerun()
+                            st.success(f"Successfully bought {b_qty} of {b_ticker}!")
+                            time.sleep(1)
+                            st.rerun()
                         else:
                             st.error("Trade Failed. Check cash balance.")
 

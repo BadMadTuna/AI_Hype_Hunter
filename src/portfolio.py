@@ -134,3 +134,30 @@ class PortfolioManager:
             return False
         finally:
             db.close()
+
+    def deposit_cash(self, amount: float) -> bool:
+        """Safely adds cash to the portfolio using the SQLAlchemy ORM."""
+        if amount <= 0:
+            print("Deposit amount must be > 0.")
+            return False
+
+        db = SessionLocal()
+        try:
+            # Look for existing EUR cash position
+            cash_pos = db.query(Position).filter(Position.ticker == "EUR").first()
+            
+            if cash_pos:
+                cash_pos.quantity += amount
+            else:
+                # Create it if it somehow got deleted
+                new_cash = Position(ticker="EUR", cost=1.0, quantity=amount, status="Liquid")
+                db.add(new_cash)
+                
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            print(f"Deposit Error: {e}")
+            return False
+        finally:
+            db.close()
